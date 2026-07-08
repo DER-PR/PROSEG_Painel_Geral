@@ -1,0 +1,32 @@
+[
+    {
+        "id":  "pr_419",
+        "rodovia":  "PR-419",
+        "arquivo":  "pr-419.json",
+        "nItens":  5
+    },
+    {
+        "id":  "pr_420",
+        "rodovia":  "PR-420",
+        "arquivo":  "pr-420.json",
+        "nItens":  4
+    },
+    {
+        "id":  "pr_281",
+        "rodovia":  "PR-281",
+        "arquivo":  "pr-281.json",
+        "nItens":  11
+    },
+    {
+        "id":  "pr_151",
+        "rodovia":  "PR-151",
+        "arquivo":  "pr-151.json",
+        "nItens":  13
+    },
+    {
+        "id":  "pr_170",
+        "rodovia":  "PR-170",
+        "arquivo":  "pr-170.json",
+        "nItens":  5
+    }
+]

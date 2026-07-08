@@ -1,0 +1,894 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PROSEG · Painel de Controle</title>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<style>
+  :root{
+    --azul:#0b4f8a; --azul2:#0d6efd; --verde:#198754; --amarelo:#f0ad4e;
+    --cinza:#6c757d; --cinzaClaro:#f2f4f7; --borda:#dfe3e8; --texto:#1f2d3d;
+    --vermelho:#c0392b;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:var(--texto);background:#eef1f5}
+  header.top{background:var(--azul);color:#fff;padding:12px 18px;display:flex;align-items:center;gap:12px;position:sticky;top:0;z-index:10}
+  header.top h1{font-size:17px;margin:0;font-weight:600}
+  header.top .sub{font-size:12px;opacity:.8;margin-left:auto}
+  .wrap{max-width:1100px;margin:0 auto;padding:16px}
+  .crumbs{font-size:13px;color:var(--cinza);margin-bottom:14px}
+  .crumbs a{color:var(--azul2);cursor:pointer;text-decoration:none}
+  .crumbs a:hover{text-decoration:underline}
+  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px}
+  .card{background:#fff;border:1px solid var(--borda);border-radius:12px;padding:18px;cursor:pointer;transition:.12s;text-align:center}
+  .card:hover{box-shadow:0 4px 14px rgba(0,0,0,.08);transform:translateY(-2px);border-color:var(--azul2)}
+  .card.disabled{opacity:.5;cursor:default;filter:grayscale(.4)}
+  .card.disabled:hover{box-shadow:none;transform:none;border-color:var(--borda)}
+  .card .ic{font-size:30px}
+  .card .t{font-weight:600;margin-top:8px}
+  .card .d{font-size:12px;color:var(--cinza);margin-top:4px}
+  .toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px}
+  input.busca{flex:1;min-width:180px;padding:9px 12px;border:1px solid var(--borda);border-radius:8px;font-size:14px}
+  select,button{font-size:14px}
+  .btn{border:1px solid var(--borda);background:#fff;border-radius:8px;padding:8px 12px;cursor:pointer}
+  .btn:hover{background:var(--cinzaClaro)}
+  .btn.pri{background:var(--azul2);color:#fff;border-color:var(--azul2)}
+  .btn.pri:hover{background:#0b5ed7}
+  table{width:100%;border-collapse:collapse;background:#fff;border:1px solid var(--borda);border-radius:10px;overflow:hidden}
+  th,td{padding:9px 10px;text-align:left;font-size:13px;border-bottom:1px solid var(--borda)}
+  th{background:var(--cinzaClaro);font-weight:600;position:sticky;top:52px;z-index:2}
+  tr:last-child td{border-bottom:none}
+  tr:hover td{background:#fafbfc}
+  .nsrow{cursor:pointer}
+  .badge{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600}
+  .b-verde{background:#e6f4ec;color:var(--verde)}
+  .b-amarelo{background:#fdf3e2;color:#b5730f}
+  .b-cinza{background:#eef0f2;color:var(--cinza)}
+  .b-azul{background:#e7f0fb;color:var(--azul)}
+  .prog{height:8px;background:#e9edf1;border-radius:6px;overflow:hidden;min-width:80px}
+  .prog > i{display:block;height:100%;background:var(--verde)}
+  .imgcel{width:52px;height:40px;background:#f4f6f8;border:1px dashed #c7ced6;border-radius:5px;display:flex;align-items:center;justify-content:center;color:#aeb6bf;font-size:9px;text-align:center;line-height:1.1}
+  img.placa{width:52px;height:40px;object-fit:contain;border:1px solid var(--borda);border-radius:5px;background:#fff;cursor:zoom-in}
+  #lightbox{position:fixed;inset:0;background:rgba(0,0,0,.75);display:none;align-items:center;justify-content:center;z-index:60;cursor:zoom-out}
+  #lightbox img{max-width:88%;max-height:88%;background:#fff;border-radius:8px;box-shadow:0 10px 40px rgba(0,0,0,.5)}
+  .med-inp{width:74px;padding:4px 6px;border:1px solid var(--borda);border-radius:6px;font-size:13px;text-align:center}
+  .obs-inp{width:100%;min-width:150px;padding:5px 8px;border:1px solid var(--borda);border-radius:6px;font-size:13px;font-family:inherit;resize:vertical;min-height:32px;line-height:1.3}
+  td.sup{font-size:12px;color:#41505f;max-width:200px}
+  .pill{padding:2px 8px;border-radius:999px;font-size:12px;font-weight:600;cursor:pointer;border:1px solid var(--borda);background:#fff}
+  .pill.on{background:var(--azul);color:#fff;border-color:var(--azul)}
+  .muted{color:var(--cinza)}
+  .stat{display:flex;gap:18px;flex-wrap:wrap;margin:6px 0 14px}
+  .stat .n{font-size:22px;font-weight:700}
+  .stat .l{font-size:11px;color:var(--cinza);text-transform:uppercase;letter-spacing:.03em}
+  .hint{background:#eaf4ff;border:1px solid #cfe3fb;color:#0b4f8a;padding:10px 12px;border-radius:8px;font-size:13px;margin-bottom:12px}
+  dialog{border:none;border-radius:14px;padding:0;max-width:520px;width:92%;box-shadow:0 20px 60px rgba(0,0,0,.3)}
+  dialog::backdrop{background:rgba(0,0,0,.4)}
+  .dlg-h{padding:16px 18px;border-bottom:1px solid var(--borda);font-weight:600;display:flex;align-items:center}
+  .dlg-h .x{margin-left:auto;cursor:pointer;color:var(--cinza);font-size:20px;line-height:1}
+  .dlg-b{padding:18px}
+  .dlg-b label{display:block;font-size:13px;font-weight:600;margin:12px 0 5px}
+  .dlg-b input[type=file],.dlg-b input[type=number]{width:100%;padding:8px;border:1px solid var(--borda);border-radius:8px;font-size:14px}
+  .dlg-f{padding:14px 18px;border-top:1px solid var(--borda);display:flex;gap:8px;justify-content:flex-end}
+  #toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);background:#1f2d3d;color:#fff;padding:11px 18px;border-radius:10px;font-size:14px;opacity:0;pointer-events:none;transition:.25s;z-index:50;max-width:90%}
+  #toast.show{opacity:1}
+  .empty{padding:40px;text-align:center;color:var(--cinza)}
+</style>
+</head>
+<body>
+<header class="top">
+  <span style="font-size:20px">🛣️</span>
+  <h1>PROSEG · Painel de Controle</h1>
+  <span class="sub">DER/PR · Contrato 122/2021 — Lote 1</span>
+</header>
+
+<div class="wrap">
+  <div class="crumbs" id="crumbs"></div>
+  <div id="view"></div>
+</div>
+
+<dialog id="dlgImport">
+  <div class="dlg-h">Registrar medição <span class="x" onclick="dlgImport.close()">×</span></div>
+  <div class="dlg-b">
+    <p class="muted" style="margin-top:0;font-size:13px">Envie o arquivo <b>.csv</b> exportado pelo app de campo de sinalização vertical. As placas contidas nele serão marcadas como medidas.</p>
+    <label>Arquivo exportado do app (.csv)</label>
+    <input type="file" id="csvFile" accept=".csv,text/csv">
+    <label>Número da medição</label>
+    <input type="number" id="medNum" min="1" placeholder="ex.: 57">
+    <p class="muted" id="importInfo" style="font-size:12px;margin-bottom:0"></p>
+  </div>
+  <div class="dlg-f">
+    <button class="btn" onclick="dlgImport.close()">Cancelar</button>
+    <button class="btn pri" onclick="processarImport()">Registrar medição</button>
+  </div>
+</dialog>
+
+<dialog id="dlgImportGeral">
+  <div class="dlg-h">Registrar medição <span class="x" onclick="dlgImportGeral.close()">×</span></div>
+  <div class="dlg-b">
+    <p class="muted" style="margin-top:0;font-size:13px">Envie a sua <b>planilha de medição (.xlsx)</b>. O painel lê a aba <b>VERTICAL</b> e marca cada placa na sua rodovia (todas de uma vez). <i>Defensas (aba DEFENSAS) em breve.</i></p>
+    <label>Planilha de medição (.xlsx)</label>
+    <input type="file" id="xlsxFile" accept=".xlsx" onchange="preLerMedicao()">
+    <label>Número da medição</label>
+    <input type="number" id="medNumG" min="1" placeholder="ex.: 55">
+    <p class="muted" id="importInfoG" style="font-size:12px;margin-bottom:0"></p>
+    <div id="resultadoImport" style="margin-top:12px"></div>
+  </div>
+  <div class="dlg-f">
+    <button class="btn" onclick="dlgImportGeral.close()">Fechar</button>
+    <button class="btn pri" id="btnProcessarG" onclick="processarImportGeral()">Registrar medição</button>
+  </div>
+</dialog>
+
+<div id="lightbox" onclick="this.style.display='none'"><img id="lightboxImg" src="" alt=""></div>
+<div id="toast"></div>
+
+<script>
+"use strict";
+const DADOS = "dados/vertical/";
+const LS_KEY = "proseg_painel_vertical_medicoes_v1";
+const LS_OBS = "proseg_painel_vertical_obs_v1";
+let manifest = [];          // lista de NS
+let nsCache = {};           // id -> objeto NS carregado
+let medicoes = {};          // id -> { ordem(str) -> numMedicao }
+let observacoes = {};       // id -> { ordem(str) -> texto }
+let atualNS = null;         // id da NS aberta
+let filtroMed = "todas";    // 'todas' | 'pendentes' | número
+
+/* ===== estado das DEFENSAS (Dispositivos de Segurança) ===== */
+const DADOS_DEF = "dados/defensas/";
+const LS_DEF = "proseg_painel_defensas_medicoes_v1";
+let defManifest = [];       // lista de NS de defensa
+let defCache = {};          // id -> objeto carregado
+let defMedicoes = {};       // id -> { idxTramo -> numMedicao }
+let defAtual = null;        // id da NS de defensa aberta
+let defFiltro = "todas";
+function carregarDefMed(){ try{ defMedicoes = JSON.parse(localStorage.getItem(LS_DEF))||{}; }catch(e){ defMedicoes={}; } }
+function salvarDefMed(){ localStorage.setItem(LS_DEF, JSON.stringify(defMedicoes)); }
+
+/* ===== NUVEM (Planilha Google via Apps Script) ===== */
+const PONTE = "https://script.google.com/macros/s/AKfycbyKAtmbz5-zwSW1sRchhbwBGEk05gT3Q993nuLU-7RTjccc_gl74pbaSxVhCNZpdbtO/exec";
+let senhaNuvem = sessionStorage.getItem("proseg_senha") || "";
+/* envia mudanças para a planilha (não bloqueia a interface) */
+function nuvemEnviar(mudancas){
+  if(!senhaNuvem || !mudancas || !mudancas.length) return;
+  fetch(PONTE, {method:"POST", headers:{"Content-Type":"text/plain;charset=utf-8"},
+    body: JSON.stringify({senha:senhaNuvem, mudancas:mudancas})})
+    .catch(function(){ toast("⚠ Sem conexão — a mudança ficou salva aqui; reabra o painel online para reenviar"); });
+}
+/* carrega TODOS os dados da planilha para a memória (e cacheia local) */
+async function nuvemCarregar(){
+  const r = await fetch(PONTE + "?senha=" + encodeURIComponent(senhaNuvem));
+  const j = await r.json();
+  if(j.erro) throw new Error(j.erro);
+  medicoes={}; observacoes={}; defMedicoes={};
+  (j.dados||[]).forEach(function(d){
+    const item=String(d.item);
+    if(d.frente==="vertical"){
+      if(d.medicao!==""&&d.medicao!=null){ (medicoes[d.ns]=medicoes[d.ns]||{})[item]=Number(d.medicao); }
+      if(d.obs!==""&&d.obs!=null){ (observacoes[d.ns]=observacoes[d.ns]||{})[item]=String(d.obs); }
+    } else if(d.frente==="defensa"){
+      if(d.medicao!==""&&d.medicao!=null){ (defMedicoes[d.ns]=defMedicoes[d.ns]||{})[item]=Number(d.medicao); }
+    }
+  });
+  salvarMed(); salvarObs(); salvarDefMed();
+}
+/* tela de login */
+function viewLogin(msg){
+  document.getElementById("view").innerHTML = `
+    <div style="max-width:340px;margin:40px auto;text-align:center">
+      <div style="font-size:40px">🔒</div>
+      <h2 style="margin:10px 0 4px">Acesso ao painel</h2>
+      <p class="muted" style="font-size:13px;margin-top:0">Digite a senha para acessar os dados de medição.</p>
+      <input type="password" id="senhaInput" placeholder="Senha" autocomplete="current-password"
+        style="width:100%;padding:11px;border:1px solid var(--borda);border-radius:8px;font-size:15px;margin:10px 0"
+        onkeydown="if(event.key==='Enter')fazerLogin()">
+      ${msg?`<p style="color:var(--vermelho);font-size:13px;margin:4px 0">${esc(msg)}</p>`:''}
+      <button class="btn pri" style="width:100%" onclick="fazerLogin()">Entrar</button>
+    </div>`;
+  const i=document.getElementById("senhaInput"); if(i) i.focus();
+}
+async function fazerLogin(){
+  const s=(document.getElementById("senhaInput").value||"").trim();
+  if(!s) return;
+  document.getElementById("view").innerHTML=`<div class="empty">Entrando…</div>`;
+  senhaNuvem=s;
+  try{ await nuvemCarregar(); }
+  catch(e){ senhaNuvem=""; viewLogin(String(e.message)==="senha"?"Senha incorreta.":"Sem conexão com a nuvem. Tente de novo."); return; }
+  sessionStorage.setItem("proseg_senha", senhaNuvem);
+  viewHome();
+}
+function sair(){ sessionStorage.removeItem("proseg_senha"); senhaNuvem=""; viewLogin(); }
+
+/* ---------- persistência ---------- */
+function carregarMed(){ try{ medicoes = JSON.parse(localStorage.getItem(LS_KEY))||{}; }catch(e){ medicoes={}; }
+  try{ observacoes = JSON.parse(localStorage.getItem(LS_OBS))||{}; }catch(e){ observacoes={}; } }
+function salvarMed(){ localStorage.setItem(LS_KEY, JSON.stringify(medicoes)); }
+function salvarObs(){ localStorage.setItem(LS_OBS, JSON.stringify(observacoes)); }
+function setObs(ordem, val){
+  if(!observacoes[atualNS]) observacoes[atualNS]={};
+  val = String(val);
+  if(val.trim()==="") delete observacoes[atualNS][ordem];
+  else observacoes[atualNS][ordem] = val;
+  salvarObs();
+  nuvemEnviar([{frente:"vertical", ns:atualNS, item:ordem, obs: val.trim()}]);
+}
+
+/* ---------- util ---------- */
+function toast(m){ const t=document.getElementById("toast"); t.textContent=m; t.classList.add("show"); clearTimeout(t._t); t._t=setTimeout(()=>t.classList.remove("show"),2600); }
+function el(html){ const d=document.createElement("div"); d.innerHTML=html.trim(); return d.firstChild; }
+function esc(s){ return (s==null?"":String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function nomeNS(ns){ let t = ns.rodovia; if(ns.trecho) t+=" — "+ns.trecho; return t; }
+function labelData(ns){ return ns.dataNS ? ("NS "+ns.dataNS) : "sem data"; }
+
+/* ---------- carregamento ---------- */
+async function carregarManifest(){
+  const r = await fetch(DADOS+"manifest.json");
+  manifest = await r.json();
+  manifest.sort((a,b)=> (a.rodovia+ (a.trecho||"")).localeCompare(b.rodovia+(b.trecho||""),'pt'));
+}
+async function carregarNS(id){
+  if(nsCache[id]) return nsCache[id];
+  const info = manifest.find(m=>m.id===id);
+  const r = await fetch(DADOS+info.arquivo);
+  const ns = await r.json();
+  ns._id = id;
+  nsCache[id] = ns;
+  return ns;
+}
+
+/* ---------- estatísticas de uma NS ---------- */
+function statNS(id, ns){
+  const med = medicoes[id]||{};
+  let total = ns ? ns.placas.length : (manifest.find(m=>m.id===id)?.totalPlacas||0);
+  let medidas = Object.keys(med).length;
+  return { total, medidas, pct: total? Math.round(medidas/total*100):0 };
+}
+
+/* ================= VIEWS ================= */
+function setCrumbs(parts){
+  const c = document.getElementById("crumbs");
+  c.innerHTML = parts.map((p,i)=> i<parts.length-1 && p.go
+      ? `<a onclick="${p.go}">${esc(p.t)}</a>` : `<span>${esc(p.t)}</span>`
+    ).join(' <span class="muted">›</span> ');
+}
+
+/* Home — aba Notas de Serviço */
+function viewHome(){
+  atualNS=null;
+  setCrumbs([{t:"Notas de Serviço"}]);
+  const opts = [
+    {t:"Sinalização Vertical", ic:"🚦", d:manifest.length+" notas de serviço", go:"viewVertical()"},
+    {t:"Sinalização Horizontal", ic:"🛣️", d:"em breve", off:true},
+    {t:"Dispositivos de Segurança", ic:"🛡️", d:defManifest.length+" notas de serviço", go:"viewDefensas()"},
+    {t:"Projeto Executivo", ic:"📐", d:"em breve", off:true},
+  ];
+  document.getElementById("view").innerHTML =
+    `<div class="toolbar" style="margin-bottom:14px">
+       <button class="btn pri" onclick="abrirImportGeral()">⬆ Registrar medição (planilha)</button>
+       <span class="muted" style="font-size:13px">Anexe a planilha de medição uma vez — o painel lê as abas por frente e distribui.</span>
+     </div>
+     <div class="cards">`+opts.map(o=>
+      `<div class="card ${o.off?'disabled':''}" ${o.off?'':`onclick="${o.go}"`}>
+        <div class="ic">${o.ic}</div><div class="t">${o.t}</div><div class="d">${o.d}</div></div>`
+    ).join('')+`</div>`;
+}
+
+/* Lista de NS de sinalização vertical */
+function viewVertical(){
+  atualNS=null;
+  setCrumbs([{t:"Notas de Serviço", go:"viewHome()"},{t:"Sinalização Vertical"}]);
+  const totPlacas = manifest.reduce((s,m)=>s+m.totalPlacas,0);
+  const totMed = manifest.reduce((s,m)=>s+statNS(m.id).medidas,0);
+  const v = document.getElementById("view");
+  v.innerHTML = `
+    <div class="stat">
+      <div><div class="n">${manifest.length}</div><div class="l">Notas de serviço</div></div>
+      <div><div class="n">${totPlacas.toLocaleString('pt-BR')}</div><div class="l">Placas</div></div>
+      <div><div class="n">${totMed.toLocaleString('pt-BR')}</div><div class="l">Medidas</div></div>
+      <div><div class="n">${(totPlacas-totMed).toLocaleString('pt-BR')}</div><div class="l">Pendentes</div></div>
+    </div>
+    <div class="toolbar">
+      <input class="busca" id="buscaNS" placeholder="Buscar rodovia (ex.: PR-281)…" oninput="renderListaNS()">
+    </div>
+    <table>
+      <thead><tr><th>Rodovia</th><th>NS</th><th style="text-align:right">Placas</th><th>Andamento</th></tr></thead>
+      <tbody id="tbNS"></tbody>
+    </table>`;
+  renderListaNS();
+}
+function renderListaNS(){
+  const q = (document.getElementById("buscaNS")?.value||"").toLowerCase().trim();
+  const tb = document.getElementById("tbNS");
+  const list = manifest.filter(m=> !q || (m.rodovia+" "+(m.trecho||"")).toLowerCase().includes(q));
+  if(!list.length){ tb.innerHTML=`<tr><td colspan="4" class="empty">Nenhuma NS encontrada.</td></tr>`; return; }
+  tb.innerHTML = list.map(m=>{
+    const s = statNS(m.id);
+    const antigo = m.trecho && /antig/i.test(m.trecho);
+    const corPct = s.pct===100 ? 'var(--verde)' : (s.medidas===0 ? 'var(--cinza)' : 'var(--azul)');
+    const andam = `<div style="display:flex;align-items:center;gap:8px;min-width:160px">
+        <div class="prog" style="flex:1"><i style="width:${s.pct}%"></i></div>
+        <span style="white-space:nowrap"><b>${s.total}/${s.medidas}</b> <span style="color:${corPct};font-weight:600">(${s.pct}%)</span></span>
+      </div>`;
+    return `<tr class="nsrow" onclick="viewNS('${m.id}')">
+      <td><b>${esc(m.rodovia)}</b>${antigo?' <span class="badge b-amarelo" title="NS antiga ainda em aberto">antiga</span>':''}</td>
+      <td class="muted">${m.dataNS?esc(m.dataNS):'—'}</td>
+      <td style="text-align:right">${m.totalPlacas}</td>
+      <td>${andam}</td>
+    </tr>`;
+  }).join('');
+}
+
+/* Detalhe de uma NS: lista de placas */
+async function viewNS(id){
+  atualNS=id; filtroMed="todas";
+  const ns = await carregarNS(id);
+  setCrumbs([{t:"Notas de Serviço", go:"viewHome()"},{t:"Sinalização Vertical", go:"viewVertical()"},{t:nomeNS(ns)}]);
+  renderNS();
+}
+function medicoesUsadas(id){
+  const med = medicoes[id]||{};
+  const set = new Set(Object.values(med).map(Number));
+  return [...set].sort((a,b)=>a-b);
+}
+function renderNS(){
+  const ns = nsCache[atualNS];
+  const med = medicoes[atualNS]||{};
+  const s = statNS(atualNS, ns);
+  const usadas = medicoesUsadas(atualNS);
+  const v = document.getElementById("view");
+  const pills = [`<span class="pill ${filtroMed==='todas'?'on':''}" onclick="setFiltro('todas')">Todas (${ns.placas.length})</span>`,
+    `<span class="pill ${filtroMed==='pendentes'?'on':''}" onclick="setFiltro('pendentes')">Pendentes (${s.total-s.medidas})</span>`]
+    .concat(usadas.map(n=>`<span class="pill ${String(filtroMed)===String(n)?'on':''}" onclick="setFiltro(${n})">Medição ${n}</span>`));
+  v.innerHTML = `
+    <div class="stat">
+      <div><div class="n">${nomeNS(ns)}</div><div class="l">${labelData(ns)} · ${ns.rodovia}</div></div>
+      <div><div class="n">${s.total}/${s.medidas} <span style="font-size:16px;color:${s.pct===100?'var(--verde)':'var(--azul)'}">(${s.pct}%)</span></div><div class="l">Placas / medidas — andamento</div></div>
+      <div style="align-self:center;min-width:160px"><div class="prog"><i style="width:${s.pct}%"></i></div><div class="l" style="margin-top:4px">${s.medidas} medida(s) · ${s.total-s.medidas} pendente(s)</div></div>
+    </div>
+    <div class="hint">A <b>ordem das placas é fixa</b> (por km), como na NS original. Registre a medição importando o arquivo exportado pelo app de campo, ou digitando o número direto na coluna <b>Medição</b>.</div>
+    <div class="toolbar">
+      <button class="btn pri" onclick="abrirImport()">⬆ Registrar medição (importar do app)</button>
+      <button class="btn" onclick="exportarExcel()">⬇ Exportar planilha (Excel)</button>
+      <button class="btn" onclick="exportarPend()">⬇ Exportar pendentes (CSV)</button>
+      <div style="flex:1"></div>
+    </div>
+    <div class="toolbar">${pills.join('')}</div>
+    <table>
+      <thead><tr><th style="width:44px">#</th><th style="width:56px">Placa</th><th>Código</th><th>km</th><th>Suporte</th><th style="width:52px;text-align:center">Qtde</th><th>Observação</th><th style="width:110px">Medição</th></tr></thead>
+      <tbody id="tbP"></tbody>
+    </table>`;
+  renderPlacas();
+}
+function setFiltro(f){ filtroMed=f; renderNS(); }
+function ampliar(img){ document.getElementById("lightboxImg").src=DADOS+"img/"+img; document.getElementById("lightbox").style.display="flex"; }
+function renderPlacas(){
+  const ns = nsCache[atualNS];
+  const med = medicoes[atualNS]||{};
+  const tb = document.getElementById("tbP");
+  const rows = ns.placas.filter(p=>{
+    const m = med[p._ordem];
+    if(filtroMed==='todas') return true;
+    if(filtroMed==='pendentes') return m==null;
+    return String(m)===String(filtroMed);
+  });
+  if(!rows.length){ tb.innerHTML=`<tr><td colspan="8" class="empty">Nenhuma placa neste filtro.</td></tr>`; return; }
+  const obs = observacoes[atualNS]||{};
+  tb.innerHTML = rows.map(p=>{
+    const m = med[p._ordem];
+    const cod = p.codigo || p.col_3 || '—';
+    const km = p.km || '—';
+    const suporte = p.tipo || '';
+    const qtde = (p.qtde_un!=null && p.qtde_un!=='') ? p.qtde_un : '';
+    const medCel = `<input class="med-inp" type="number" min="1" value="${m??''}" placeholder="—"
+        onchange="setMedicao(${p._ordem}, this.value)" title="Medição em que esta placa foi medida">`;
+    const obsCel = `<textarea class="obs-inp" rows="1" placeholder="—"
+        onchange="setObs(${p._ordem}, this.value)">${esc(obs[p._ordem]||'')}</textarea>`;
+    const imgCel = p.img
+      ? `<img class="placa" loading="lazy" src="${DADOS}img/${esc(p.img)}" alt="${esc(cod)}" onclick="ampliar('${esc(p.img)}')">`
+      : `<div class="imgcel">sem<br>imagem</div>`;
+    return `<tr>
+      <td class="muted">${p._ordem+1}</td>
+      <td>${imgCel}</td>
+      <td><b>${esc(cod)}</b></td>
+      <td>${esc(km)}</td>
+      <td class="sup">${esc(suporte)||'<span class="muted">—</span>'}</td>
+      <td style="text-align:center">${esc(String(qtde))||'<span class="muted">—</span>'}</td>
+      <td>${obsCel}</td>
+      <td>${medCel}</td>
+    </tr>`;
+  }).join('');
+}
+function setMedicao(ordem, val){
+  if(!medicoes[atualNS]) medicoes[atualNS]={};
+  val = String(val).trim();
+  var vazio = (val==="" || Number(val)<=0);
+  if(vazio){ delete medicoes[atualNS][ordem]; }
+  else { medicoes[atualNS][ordem] = Number(val); }
+  salvarMed();
+  nuvemEnviar([{frente:"vertical", ns:atualNS, item:ordem, medicao: vazio? "" : Number(val)}]);
+  // atualiza estatística/pills sem perder foco geral
+  renderNS();
+}
+
+/* ---------- importação do CSV do app de campo ---------- */
+function abrirImport(){
+  document.getElementById("csvFile").value="";
+  document.getElementById("medNum").value="";
+  document.getElementById("importInfo").textContent="";
+  document.getElementById("dlgImport").showModal();
+}
+function parseCSV(txt){
+  txt = txt.replace(/^﻿/,'');
+  // detecta separador (; padrão do app, mas aceita ,)
+  const primeira = txt.split(/\r?\n/)[0]||"";
+  const sep = (primeira.split(';').length >= primeira.split(',').length) ? ';' : ',';
+  const linhas=[]; let campo='', linha=[], emAspas=false;
+  for(let i=0;i<txt.length;i++){
+    const c=txt[i];
+    if(emAspas){
+      if(c==='"'){ if(txt[i+1]==='"'){campo+='"';i++;} else emAspas=false; }
+      else campo+=c;
+    } else {
+      if(c==='"') emAspas=true;
+      else if(c===sep){ linha.push(campo); campo=''; }
+      else if(c==='\n'){ linha.push(campo); linhas.push(linha); linha=[]; campo=''; }
+      else if(c==='\r'){ /*ignora*/ }
+      else campo+=c;
+    }
+  }
+  if(campo!==''||linha.length){ linha.push(campo); linhas.push(linha); }
+  return linhas.filter(l=>l.some(x=>String(x).trim()!==''));
+}
+function processarImport(){
+  const f = document.getElementById("csvFile").files[0];
+  const medNum = Number(document.getElementById("medNum").value);
+  if(!f){ toast("Selecione o arquivo .csv"); return; }
+  if(!medNum || medNum<=0){ toast("Informe o número da medição"); return; }
+  const reader = new FileReader();
+  reader.onload = ()=>{
+    let linhas;
+    try{ linhas = parseCSV(reader.result); }catch(e){ toast("Não consegui ler o CSV"); return; }
+    if(linhas.length<2){ toast("CSV vazio ou sem dados"); return; }
+    const head = linhas[0].map(h=>h.trim().toLowerCase());
+    const iCod = head.findIndex(h=> h==='placa' || h==='código' || h==='codigo');
+    const iKm  = head.findIndex(h=> h==='km');
+    const iFr  = head.findIndex(h=> h==='fração' || h==='fracao');
+    if(iCod<0){ toast("Não achei a coluna Placa/Código no CSV"); return; }
+    const ns = nsCache[atualNS];
+    // índice das placas da NS por código -> lista de _ordem (na ordem do km)
+    const porCod = {};
+    ns.placas.forEach(p=>{ const c=(p.codigo||p.col_3||'').trim(); if(!porCod[c])porCod[c]=[]; porCod[c].push(p); });
+    const usados = {}; // controla duplicatas: código -> quantos já casados
+    let casadas=0, naoCasadas=0;
+    if(!medicoes[atualNS]) medicoes[atualNS]={};
+    for(let i=1;i<linhas.length;i++){
+      const cod = (linhas[i][iCod]||'').trim();
+      if(!cod) continue;
+      const km = iKm>=0 ? (linhas[i][iKm]||'').trim() : null;
+      const cands = porCod[cod];
+      if(!cands || !cands.length){ naoCasadas++; continue; }
+      // tenta casar por km (inteiro) quando houver; senão, sequencial
+      let alvo=null;
+      if(km!=null){
+        alvo = cands.find(p=> !usados[p._ordem] && String(p.km||'').split('+')[0].trim()===String(km).trim());
+      }
+      if(!alvo) alvo = cands.find(p=> !usados[p._ordem]);
+      if(!alvo){ naoCasadas++; continue; }
+      usados[alvo._ordem]=true;
+      medicoes[atualNS][alvo._ordem]=medNum;
+      casadas++;
+    }
+    salvarMed();
+    document.getElementById("dlgImport").close();
+    toast(`Medição ${medNum}: ${casadas} placa(s) marcada(s)`+(naoCasadas?` · ${naoCasadas} não encontrada(s)`:''));
+    renderNS();
+  };
+  reader.readAsText(f, 'UTF-8');
+}
+
+/* ============ Importação GERAL (planilha de medição, aba VERTICAL, todas as rodovias) ============ */
+let _medWB = null;   // workbook lido, reaproveitado
+
+function abrirImportGeral(){
+  _medWB=null;
+  document.getElementById("xlsxFile").value="";
+  document.getElementById("medNumG").value="";
+  document.getElementById("importInfoG").textContent="";
+  document.getElementById("resultadoImport").innerHTML="";
+  document.getElementById("btnProcessarG").style.display="";
+  document.getElementById("dlgImportGeral").showModal();
+}
+
+// "24+710,46" ou "24+710.46" -> 24710.46 ; "24" + "710,46" -> 24710.46
+function kmParaNum(s){
+  if(s==null) return null;
+  let t=String(s).trim().replace(',', '.');
+  let m=t.match(/^(\d+)\+([\d.]+)$/);
+  if(m) return parseInt(m[1],10)*1000 + parseFloat(m[2]);
+  let n=parseFloat(t); return isNaN(n)?null:n;
+}
+function normRod(s){ return String(s||'').toUpperCase().replace(/\s+/g,'').trim(); }
+function normCod(s){ return String(s||'').trim(); }
+
+// acha a aba VERTICAL e devolve as linhas (array de arrays) + índices das colunas
+function lerAbaVertical(wb){
+  const nome = wb.SheetNames.find(n=> n.trim().toUpperCase()==='VERTICAL');
+  if(!nome) throw new Error('Não achei a aba "VERTICAL" na planilha.');
+  const ws = wb.Sheets[nome];
+  const linhas = XLSX.utils.sheet_to_json(ws, {header:1, raw:true, defval:''});
+  // acha a linha de cabeçalho: contém RODOVIA e PLACA
+  let hi=-1, col={};
+  for(let i=0;i<linhas.length;i++){
+    const cels = linhas[i].map(c=> String(c).trim().toUpperCase());
+    if(cels.includes('RODOVIA') && cels.includes('PLACA')){
+      hi=i;
+      cels.forEach((c,j)=>{
+        if(c==='RODOVIA') col.rod=j;
+        else if(c==='PLACA') col.cod=j;
+        else if(c.includes('KM') && (c.includes('INIC')||c.includes('INCIAL'))) col.km=j;
+        else if(c.includes('FRA') && c.includes('INIC')) col.frac=j;
+      });
+      break;
+    }
+  }
+  if(hi<0) throw new Error('Não achei a linha de cabeçalho (RODOVIA / PLACA) na aba VERTICAL.');
+  if(col.rod==null||col.cod==null) throw new Error('Não achei as colunas RODOVIA e PLACA.');
+  return { linhas, hi, col, medDetectada: detectarMedicao(linhas) };
+}
+// procura um rótulo "Medição" e devolve o valor ao lado
+function detectarMedicao(linhas){
+  for(const lin of linhas){
+    for(let j=0;j<lin.length;j++){
+      if(String(lin[j]).trim().toLowerCase().replace(':','')==='medição' || String(lin[j]).trim().toLowerCase().replace(':','')==='medicao'){
+        for(let k=j+1;k<lin.length;k++){ const v=lin[k]; if(v!==''&&v!=null){ const n=parseInt(v,10); if(!isNaN(n)) return n; } }
+      }
+    }
+  }
+  return null;
+}
+
+// ao escolher o arquivo: lê e pré-preenche o número da medição + prévia
+function preLerMedicao(){
+  const f=document.getElementById("xlsxFile").files[0];
+  if(!f) return;
+  const info=document.getElementById("importInfoG");
+  info.textContent="Lendo planilha…";
+  const rd=new FileReader();
+  rd.onload=()=>{
+    try{
+      _medWB=XLSX.read(new Uint8Array(rd.result), {type:'array'});
+      const { linhas, hi, col, medDetectada } = lerAbaVertical(_medWB);
+      // conta placas por rodovia
+      const cont={};
+      for(let i=hi+1;i<linhas.length;i++){
+        const rod=normRod(linhas[i][col.rod]); const cod=normCod(linhas[i][col.cod]);
+        if(!rod||!cod) continue; cont[rod]=(cont[rod]||0)+1;
+      }
+      const tot=Object.values(cont).reduce((a,b)=>a+b,0);
+      const rods=Object.keys(cont).sort();
+      if(medDetectada && !document.getElementById("medNumG").value) document.getElementById("medNumG").value=medDetectada;
+      info.innerHTML=`Aba VERTICAL: <b>${tot}</b> placa(s) em <b>${rods.length}</b> rodovia(s) — ${rods.map(r=>r+' ('+cont[r]+')').join(', ')}`
+        + (medDetectada?`<br>Medição detectada na planilha: <b>${medDetectada}</b> (confira o número acima).`:``);
+    }catch(e){ _medWB=null; info.textContent="⚠ "+e.message; }
+  };
+  rd.readAsArrayBuffer(f);
+}
+
+async function processarImportGeral(){
+  const medNum=Number(document.getElementById("medNumG").value);
+  if(!_medWB){ toast("Selecione a planilha (.xlsx)"); return; }
+  if(!medNum||medNum<=0){ toast("Informe o número da medição"); return; }
+  const res=document.getElementById("resultadoImport");
+  res.innerHTML='<span class="muted">Processando…</span>';
+  const temVert=_medWB.SheetNames.some(n=>n.trim().toUpperCase()==='VERTICAL');
+  const temDef =_medWB.SheetNames.some(n=>n.trim().toUpperCase()==='DEFENSAS');
+  if(!temVert && !temDef){ res.innerHTML='⚠ Não achei as abas VERTICAL nem DEFENSAS na planilha.'; return; }
+  let html=`<div class="hint" style="background:#e6f4ec;border-color:#bfe3cd;color:#155a34"><b>Medição ${medNum} registrada.</b></div>`;
+  if(temVert){ try{ html+=await processarVertical(medNum); }catch(e){ html+='<p class="muted">⚠ Vertical: '+esc(e.message)+'</p>'; } }
+  if(temDef){ try{ html+=await processarDefensasWB(medNum); }catch(e){ html+='<p class="muted">⚠ Defensas: '+esc(e.message)+'</p>'; } }
+  res.innerHTML=html;
+  document.getElementById("btnProcessarG").style.display="none";
+}
+
+function tabelaResumo(porRodResumo, rotulo){
+  let h=`<table style="margin-top:6px"><thead><tr><th>Rodovia</th><th style="text-align:right">${rotulo}</th><th style="text-align:right">Não casad.</th></tr></thead><tbody>`;
+  h+=porRodResumo.map(r=>`<tr><td><b>${esc(r.rod)}</b></td><td style="text-align:right">${r.casou}</td><td style="text-align:right">${r.nao?('<span style="color:var(--amarelo)">'+r.nao+'</span>'):'0'}</td></tr>`).join('');
+  return h+`</tbody></table>`;
+}
+
+/* ----- VERTICAL: casa por código + km ----- */
+async function processarVertical(medNum){
+  const { linhas, hi, col } = lerAbaVertical(_medWB);
+  const porRod={};
+  for(let i=hi+1;i<linhas.length;i++){
+    const rod=normRod(linhas[i][col.rod]); const cod=normCod(linhas[i][col.cod]);
+    if(!rod||!cod) continue;
+    const kmNum = col.km!=null ? kmParaNum( String(linhas[i][col.km]).trim() + (col.frac!=null? '+'+String(linhas[i][col.frac]).trim() : '') ) : null;
+    (porRod[rod]=porRod[rod]||[]).push({cod, kmNum});
+  }
+  let totC=0, totN=0; const resumo=[]; const ausentes=[]; const naoachadas=[]; const mudancas=[];
+  for(const rod of Object.keys(porRod).sort()){
+    const nss = manifest.filter(m=> normRod(m.rodovia)===rod);
+    if(!nss.length){ ausentes.push({rod, n:porRod[rod].length}); totN+=porRod[rod].length; continue; }
+    const idx={};
+    for(const m of nss){ const ns=await carregarNS(m.id); ns.placas.forEach(p=>{ const kn=kmParaNum(p.km); const key=normCod(p.codigo)+'|'+(kn==null?'?':Math.round(kn)); (idx[key]=idx[key]||[]).push({id:m.id, ordem:p._ordem}); }); }
+    const usado={}; let casou=0, nao=0;
+    for(const linha of porRod[rod]){
+      const key=linha.cod+'|'+(linha.kmNum==null?'?':Math.round(linha.kmNum));
+      let alvo=(idx[key]||[]).find(a=>!usado[a.id+'#'+a.ordem]);
+      if(!alvo){ const soCod=Object.keys(idx).filter(k=>k.startsWith(linha.cod+'|')).flatMap(k=>idx[k]).filter(a=>!usado[a.id+'#'+a.ordem]); alvo=soCod[0]; }
+      if(!alvo){ nao++; naoachadas.push(rod+' '+linha.cod+(linha.kmNum!=null?' ('+kmFmt(linha.kmNum)+')':'')); continue; }
+      usado[alvo.id+'#'+alvo.ordem]=true;
+      if(!medicoes[alvo.id]) medicoes[alvo.id]={};
+      medicoes[alvo.id][alvo.ordem]=medNum; casou++;
+      mudancas.push({frente:"vertical", ns:alvo.id, item:alvo.ordem, medicao:medNum});
+    }
+    totC+=casou; totN+=nao; resumo.push({rod, casou, nao});
+  }
+  salvarMed(); nuvemEnviar(mudancas);
+  let h=`<div style="margin-top:10px;font-weight:600">🚦 Sinalização Vertical — ${totC} placa(s) marcada(s)${totN?' · '+totN+' não casada(s)':''}</div>`;
+  h+=tabelaResumo(resumo, "Placas");
+  if(ausentes.length) h+=`<p class="muted" style="margin:6px 0 0;font-size:12px">⚠ Sem NS no painel: ${ausentes.map(a=>esc(a.rod)+' ('+a.n+')').join(', ')}.</p>`;
+  if(naoachadas.length) h+=`<details style="margin-top:4px"><summary class="muted" style="font-size:12px;cursor:pointer">${naoachadas.length} placa(s) não encontrada(s) — ver</summary><p class="muted" style="font-size:12px">${naoachadas.slice(0,60).map(esc).join('<br>')}${naoachadas.length>60?'<br>…':''}</p></details>`;
+  return h;
+}
+
+/* ----- DEFENSAS: casa por rodovia + número do tramo ----- */
+function lerAbaDefensas(wb){
+  const nome=wb.SheetNames.find(n=>n.trim().toUpperCase()==='DEFENSAS');
+  if(!nome) throw new Error('Não achei a aba "DEFENSAS".');
+  const linhas=XLSX.utils.sheet_to_json(wb.Sheets[nome], {header:1, raw:true, defval:''});
+  let hi=-1, col={};
+  for(let i=0;i<linhas.length;i++){
+    const cels=linhas[i].map(c=>String(c).trim().toUpperCase());
+    if(cels.includes('RODOVIA') && cels.includes('TRAMO')){
+      hi=i; cels.forEach((c,j)=>{ if(c==='RODOVIA')col.rod=j; else if(c==='TRAMO')col.tramo=j; }); break;
+    }
+  }
+  if(hi<0||col.rod==null||col.tramo==null) throw new Error('Não achei o cabeçalho (RODOVIA / TRAMO) na aba DEFENSAS.');
+  return { linhas, hi, col };
+}
+async function processarDefensasWB(medNum){
+  const { linhas, hi, col } = lerAbaDefensas(_medWB);
+  // tramos distintos por rodovia (o mesmo tramo aparece em várias linhas de serviço)
+  const porRod={};
+  for(let i=hi+1;i<linhas.length;i++){
+    const rod=normRod(linhas[i][col.rod]); const tr=String(linhas[i][col.tramo]||'').trim();
+    if(!rod||!tr) continue;
+    (porRod[rod]=porRod[rod]||new Set()).add(tr);
+  }
+  if(!defManifest.length){ try{ await carregarDefManifest(); }catch(e){} }
+  let totC=0, totN=0; const resumo=[]; const ausentes=[]; const naoachados=[]; const mudancas=[];
+  for(const rod of Object.keys(porRod).sort()){
+    const tramos=[...porRod[rod]];
+    const m=defManifest.find(x=> normRod(x.rodovia)===rod);
+    if(!m){ ausentes.push({rod, n:tramos.length}); totN+=tramos.length; continue; }
+    const ns=await carregarDefNS(m.id);
+    const trIdx={}; ns.itens.forEach((it,i)=>{ trIdx[String(it.tramo).trim()]=i; });
+    let casou=0, nao=0;
+    for(const tr of tramos){
+      if(trIdx[tr]!=null){ if(!defMedicoes[m.id]) defMedicoes[m.id]={}; defMedicoes[m.id][trIdx[tr]]=medNum; casou++; mudancas.push({frente:"defensa", ns:m.id, item:trIdx[tr], medicao:medNum}); }
+      else { nao++; naoachados.push(rod+' tramo '+tr); }
+    }
+    totC+=casou; totN+=nao; resumo.push({rod, casou, nao});
+  }
+  salvarDefMed(); nuvemEnviar(mudancas);
+  let h=`<div style="margin-top:14px;font-weight:600">🛡️ Defensas metálicas — ${totC} tramo(s) marcado(s)${totN?' · '+totN+' não casado(s)':''}</div>`;
+  h+=tabelaResumo(resumo, "Tramos");
+  if(ausentes.length) h+=`<p class="muted" style="margin:6px 0 0;font-size:12px">⚠ Sem NS no painel: ${ausentes.map(a=>esc(a.rod)+' ('+a.n+')').join(', ')}.</p>`;
+  if(naoachados.length) h+=`<details style="margin-top:4px"><summary class="muted" style="font-size:12px;cursor:pointer">${naoachados.length} tramo(s) não encontrado(s) — ver</summary><p class="muted" style="font-size:12px">${naoachados.slice(0,60).map(esc).join('<br>')}${naoachados.length>60?'<br>…':''}</p></details>`;
+  return h;
+}
+function kmFmt(n){ const km=Math.floor(n/1000), m=Math.round(n-km*1000); return km+'+'+String(m).padStart(3,'0'); }
+
+/* monta a matriz de dados da NS atual (linhas de cabeçalho + tabela) */
+function montarPlanilhaNS(){
+  const ns = nsCache[atualNS];
+  const med = medicoes[atualNS]||{};
+  const obs = observacoes[atualNS]||{};
+  const s = statNS(atualNS, ns);
+  const aoa = [];
+  aoa.push(["NOTA DE SERVIÇO - SINALIZAÇÃO VERTICAL"]);
+  aoa.push(["Rodovia", ns.rodovia]);
+  aoa.push(["Trecho / versão", ns.trecho || "único"]);
+  aoa.push(["Data da NS", ns.dataNS || "—"]);
+  aoa.push(["Andamento", `${s.total}/${s.medidas} (${s.pct}%)`]);
+  aoa.push([]);
+  aoa.push(["#","Código","km","Suporte","Qtde (un.)","Observação","Medição"]);
+  ns.placas.forEach(p=>{
+    aoa.push([ p._ordem+1, (p.codigo||""), (p.km||""), (p.tipo||""),
+      (p.qtde_un!=null?p.qtde_un:""), (obs[p._ordem]||""), (med[p._ordem]!=null?med[p._ordem]:"") ]);
+  });
+  return aoa;
+}
+function nomeArqNS(ext){
+  const ns = nsCache[atualNS];
+  return `${ns.rodovia}${ns.trecho?'_'+ns.trecho.replace(/\W+/g,'-'):''}_vertical.${ext}`;
+}
+/* exporta a NS atual como planilha .xlsx (cai para CSV se a lib não carregar) */
+function exportarExcel(){
+  if(typeof XLSX === "undefined"){ toast("Biblioteca de Excel indisponível (sem internet?) — baixando em CSV"); return exportarCSVCompleto(); }
+  const ns = nsCache[atualNS];
+  const aoa = montarPlanilhaNS();
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols'] = [{wch:5},{wch:20},{wch:12},{wch:42},{wch:10},{wch:28},{wch:9}];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, ns.rodovia.substring(0,28));
+  XLSX.writeFile(wb, nomeArqNS("xlsx"));
+  toast("Planilha exportada (Excel)");
+}
+/* alternativa em CSV (mesmos dados) */
+function exportarCSVCompleto(){
+  const aoa = montarPlanilhaNS();
+  const sep=';';
+  const corpo = aoa.map(l=> l.map(x=>{ x=(x==null?"":String(x)); return /[";\n]/.test(x)?'"'+x.replace(/"/g,'""')+'"':x; }).join(sep)).join("\r\n");
+  const blob=new Blob(["﻿"+corpo],{type:"text/csv;charset=utf-8;"});
+  const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=nomeArqNS("csv");
+  a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),1500);
+  toast("Planilha exportada (CSV)");
+}
+
+/* exporta placas pendentes da NS atual */
+function exportarPend(){
+  const ns = nsCache[atualNS];
+  const med = medicoes[atualNS]||{};
+  const pend = ns.placas.filter(p=> med[p._ordem]==null);
+  if(!pend.length){ toast("Nenhuma placa pendente 🎉"); return; }
+  const sep=';';
+  const linhas=[["Rodovia","Trecho","Ordem","Código","km","Situação"].join(sep)]
+    .concat(pend.map(p=>[ns.rodovia, ns.trecho||'', p._ordem+1, (p.codigo||''), (p.km||''), (p.situacao||'')]
+      .map(x=>{x=String(x); return /[";\n]/.test(x)?'"'+x.replace(/"/g,'""')+'"':x;}).join(sep)));
+  const blob=new Blob(["﻿"+linhas.join("\r\n")],{type:"text/csv;charset=utf-8;"});
+  const a=document.createElement("a"); a.href=URL.createObjectURL(blob);
+  a.download=`pendentes_${ns.rodovia}${ns.trecho?'_'+ns.trecho.replace(/\W+/g,'-'):''}.csv`;
+  a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),1500);
+  toast(`${pend.length} pendente(s) exportada(s)`);
+}
+
+/* ================= DEFENSAS METÁLICAS (Dispositivos de Segurança) ================= */
+async function carregarDefManifest(){
+  const r = await fetch(DADOS_DEF+"manifest.json"); defManifest = await r.json();
+  defManifest.sort((a,b)=> a.rodovia.localeCompare(b.rodovia,'pt'));
+}
+async function carregarDefNS(id){
+  if(defCache[id]) return defCache[id];
+  const info = defManifest.find(m=>m.id===id);
+  const ns = await (await fetch(DADOS_DEF+info.arquivo)).json();
+  ns._id=id; defCache[id]=ns; return ns;
+}
+function statDef(id, ns){
+  const med = defMedicoes[id]||{};
+  const total = ns ? ns.itens.length : (defManifest.find(m=>m.id===id)?.nItens||0);
+  const medidas = Object.keys(med).length;
+  return { total, medidas, pct: total? Math.round(medidas/total*100):0 };
+}
+function medicoesUsadasDef(id){ return [...new Set(Object.values(defMedicoes[id]||{}).map(Number))].sort((a,b)=>a-b); }
+
+function viewDefensas(){
+  defAtual=null;
+  setCrumbs([{t:"Notas de Serviço", go:"viewHome()"},{t:"Dispositivos de Segurança"}]);
+  const totT = defManifest.reduce((s,m)=>s+m.nItens,0);
+  const totMed = defManifest.reduce((s,m)=>s+statDef(m.id).medidas,0);
+  document.getElementById("view").innerHTML = `
+    <div class="stat">
+      <div><div class="n">${defManifest.length}</div><div class="l">Notas de serviço</div></div>
+      <div><div class="n">${totT}</div><div class="l">Tramos de defensa</div></div>
+      <div><div class="n">${totMed}</div><div class="l">Medidos</div></div>
+      <div><div class="n">${totT-totMed}</div><div class="l">Pendentes</div></div>
+    </div>
+    <div class="toolbar">
+      <input class="busca" id="buscaDef" placeholder="Buscar rodovia…" oninput="renderListaDef()">
+    </div>
+    <table>
+      <thead><tr><th>Rodovia</th><th style="text-align:right">Tramos</th><th>Andamento</th></tr></thead>
+      <tbody id="tbDef"></tbody>
+    </table>`;
+  renderListaDef();
+}
+function renderListaDef(){
+  const q=(document.getElementById("buscaDef")?.value||"").toLowerCase().trim();
+  const tb=document.getElementById("tbDef");
+  const list=defManifest.filter(m=> !q || m.rodovia.toLowerCase().includes(q));
+  if(!list.length){ tb.innerHTML=`<tr><td colspan="3" class="empty">Nenhuma rodovia.</td></tr>`; return; }
+  tb.innerHTML=list.map(m=>{
+    const s=statDef(m.id);
+    const cor = s.pct===100?'var(--verde)':(s.medidas===0?'var(--cinza)':'var(--azul)');
+    const andam=`<div style="display:flex;align-items:center;gap:8px;min-width:160px"><div class="prog" style="flex:1"><i style="width:${s.pct}%"></i></div><span style="white-space:nowrap"><b>${s.total}/${s.medidas}</b> <span style="color:${cor};font-weight:600">(${s.pct}%)</span></span></div>`;
+    return `<tr class="nsrow" onclick="viewDefNS('${m.id}')"><td><b>${esc(m.rodovia)}</b></td><td style="text-align:right">${m.nItens}</td><td>${andam}</td></tr>`;
+  }).join('');
+}
+async function viewDefNS(id){
+  defAtual=id; defFiltro="todas";
+  const ns=await carregarDefNS(id);
+  setCrumbs([{t:"Notas de Serviço", go:"viewHome()"},{t:"Dispositivos de Segurança", go:"viewDefensas()"},{t:ns.rodovia}]);
+  renderDefNS();
+}
+function setFiltroDef(f){ defFiltro=f; renderDefNS(); }
+function renderDefNS(){
+  const ns=defCache[defAtual]; const s=statDef(defAtual,ns);
+  const usadas=medicoesUsadasDef(defAtual);
+  const pills=[`<span class="pill ${defFiltro==='todas'?'on':''}" onclick="setFiltroDef('todas')">Todos (${ns.itens.length})</span>`,
+    `<span class="pill ${defFiltro==='pendentes'?'on':''}" onclick="setFiltroDef('pendentes')">Pendentes (${s.total-s.medidas})</span>`]
+    .concat(usadas.map(n=>`<span class="pill ${String(defFiltro)===String(n)?'on':''}" onclick="setFiltroDef(${n})">Medição ${n}</span>`));
+  document.getElementById("view").innerHTML=`
+    <div class="stat">
+      <div><div class="n">${esc(ns.rodovia)}</div><div class="l">Defensas metálicas</div></div>
+      <div><div class="n">${s.total}/${s.medidas} <span style="font-size:16px;color:${s.pct===100?'var(--verde)':'var(--azul)'}">(${s.pct}%)</span></div><div class="l">Tramos / medidos — andamento</div></div>
+      <div style="align-self:center;min-width:160px"><div class="prog"><i style="width:${s.pct}%"></i></div><div class="l" style="margin-top:4px">${s.medidas} medido(s) · ${s.total-s.medidas} pendente(s)</div></div>
+    </div>
+    <div class="hint">Cada linha é um <b>tramo</b> de defensa. Registre a medição importando a aba <b>DISP. SEGURANÇA</b> da sua planilha, ou digitando o número na coluna <b>Medição</b>.</div>
+    <div class="toolbar">${pills.join('')}</div>
+    <table>
+      <thead><tr><th style="width:44px">#</th><th>Tramo</th><th>km (início → fim)</th><th>Lado</th><th style="text-align:right">Compr. (m)</th><th>Modelo</th><th>Terminais (ent. / saída)</th><th style="width:110px">Medição</th></tr></thead>
+      <tbody id="tbTr"></tbody>
+    </table>`;
+  renderTramos();
+}
+function renderTramos(){
+  const ns=defCache[defAtual]; const med=defMedicoes[defAtual]||{};
+  const tb=document.getElementById("tbTr");
+  const rows=ns.itens.map((it,i)=>({it,i})).filter(({i})=>{
+    const m=med[i];
+    if(defFiltro==='todas') return true;
+    if(defFiltro==='pendentes') return m==null;
+    return String(m)===String(defFiltro);
+  });
+  if(!rows.length){ tb.innerHTML=`<tr><td colspan="8" class="empty">Nenhum tramo neste filtro.</td></tr>`; return; }
+  tb.innerHTML=rows.map(({it,i})=>{
+    const m=med[i];
+    const km=`${esc(it.kmIni||'—')} → ${esc(it.kmFim||'—')}`;
+    const term=`${esc(it.termEntrada||'—')} / ${esc(it.termSaida||'—')}`;
+    const medCel=`<input class="med-inp" type="number" min="1" value="${m??''}" placeholder="—" onchange="setMedicaoDef(${i}, this.value)">`;
+    return `<tr>
+      <td class="muted">${i+1}</td>
+      <td><b>${esc(it.tramo||'—')}</b></td>
+      <td>${km}</td>
+      <td>${esc(it.lado||'—')}</td>
+      <td style="text-align:right">${esc(it.comprimento||'—')}</td>
+      <td>${esc(it.modelo||'—')}</td>
+      <td class="sup" style="font-size:11px">${term}</td>
+      <td>${medCel}</td>
+    </tr>`;
+  }).join('');
+}
+function setMedicaoDef(idx, val){
+  if(!defMedicoes[defAtual]) defMedicoes[defAtual]={};
+  val=String(val).trim();
+  var vazio=(val===""||Number(val)<=0);
+  if(vazio) delete defMedicoes[defAtual][idx]; else defMedicoes[defAtual][idx]=Number(val);
+  salvarDefMed();
+  nuvemEnviar([{frente:"defensa", ns:defAtual, item:idx, medicao: vazio? "" : Number(val)}]);
+  renderDefNS();
+}
+function abrirImportDef(){ toast("Importação de defensas: em construção — por enquanto, digite a medição por tramo."); }
+
+/* ---------- boot ---------- */
+async function comRetry(fn, tentativas){
+  let ultimo;
+  for(let i=0;i<(tentativas||4);i++){
+    try{ return await fn(); }catch(e){ ultimo=e; await new Promise(r=>setTimeout(r, 400*(i+1))); }
+  }
+  throw ultimo;
+}
+async function iniciar(){
+  document.getElementById("view").innerHTML=`<div class="empty">Carregando…</div>`;
+  carregarMed(); carregarDefMed();
+  try{ await comRetry(carregarManifest); }
+  catch(e){
+    document.getElementById("view").innerHTML=`<div class="empty">Não consegui carregar os dados agora.<br><span class="muted">O servidor do preview pode estar reiniciando.</span><br><br><button class="btn pri" onclick="iniciar()">↻ Tentar de novo</button></div>`;
+    return;
+  }
+  // defensas é opcional: se falhar, o painel abre mesmo assim (só vertical)
+  try{ await comRetry(carregarDefManifest, 2); }catch(e){ defManifest=[]; }
+  // nuvem: se já tem senha guardada na sessão, tenta entrar direto; senão, login
+  if(senhaNuvem){
+    try{ await nuvemCarregar(); viewHome(); return; }
+    catch(e){ senhaNuvem=""; sessionStorage.removeItem("proseg_senha"); }
+  }
+  viewLogin();
+}
+iniciar();
+</script>
+</body>
+</html>
