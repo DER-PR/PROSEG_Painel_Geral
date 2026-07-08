@@ -268,6 +268,29 @@
   </div>
 </dialog>
 
+<dialog id="dlgRelatorio">
+  <div class="dlg-h"><span id="dlgRelTitulo">Adicionar relatório</span> <span class="x" onclick="dlgRelatorio.close()">×</span></div>
+  <div class="dlg-b">
+    <label>Título *</label>
+    <input id="relTitulo" placeholder="ex.: Relatório mensal de Junho/2026" style="width:100%;padding:8px;border:1px solid var(--borda);border-radius:8px;font-size:14px">
+    <div style="display:flex;gap:10px;flex-wrap:wrap">
+      <div style="flex:1;min-width:150px"><label>Tipo</label>
+        <input id="relTipo" list="tiposRel" placeholder="Mensal" style="width:100%;padding:8px;border:1px solid var(--borda);border-radius:8px;font-size:14px">
+        <datalist id="tiposRel"><option>Mensal</option><option>Ensaio de retrorrefletância</option><option>Vistoria</option><option>Medição</option><option>Acompanhamento</option><option>Outro</option></datalist>
+      </div>
+      <div style="flex:1;min-width:120px"><label>Mês de referência</label><input id="relData" type="month" style="width:100%;padding:8px;border:1px solid var(--borda);border-radius:8px;font-size:14px"></div>
+      <div style="width:100px"><label>Medição</label><input id="relMed" type="number" min="1" placeholder="57" style="width:100%;padding:8px;border:1px solid var(--borda);border-radius:8px;font-size:14px"></div>
+    </div>
+    <label>Link do PDF (Google Drive)</label>
+    <input id="relLink" placeholder="https://drive.google.com/file/d/…/view" style="width:100%;padding:8px;border:1px solid var(--borda);border-radius:8px;font-size:14px">
+    <p class="muted" style="font-size:12px;margin-bottom:0">Suba o PDF no Drive → Compartilhar → "qualquer pessoa com o link" → copie e cole aqui.</p>
+  </div>
+  <div class="dlg-f">
+    <button class="btn" onclick="dlgRelatorio.close()">Cancelar</button>
+    <button class="btn pri" onclick="salvarRelatorio()">Salvar</button>
+  </div>
+</dialog>
+
 <div id="lightbox" onclick="this.style.display='none'"><img id="lightboxImg" src="" alt=""></div>
 <div id="toast"></div>
 
@@ -308,6 +331,12 @@ let horizAtual = null;      // id da NS horizontal aberta
 let horizFiltro = "todas";
 function carregarHorizMed(){ try{ horizMedicoes = JSON.parse(localStorage.getItem(LS_HORIZ))||{}; }catch(e){ horizMedicoes={}; } }
 function salvarHorizMed(){ localStorage.setItem(LS_HORIZ, JSON.stringify(horizMedicoes)); }
+
+/* ===== RELATÓRIOS (PDFs ficam no Google Drive; o site guarda só o registro) ===== */
+const LS_REL = "proseg_painel_relatorios_v1";
+let relatorios = [];   // [{id, titulo, tipo, data, medicao, link}]
+function carregarRel(){ try{ relatorios = JSON.parse(localStorage.getItem(LS_REL))||[]; }catch(e){ relatorios=[]; } }
+function salvarRel(){ localStorage.setItem(LS_REL, JSON.stringify(relatorios)); }
 
 /* ===== NS MANUAIS (definição guardada na nuvem, linha frente="__nota__") ===== */
 let manualDefs = {};        // idManual -> { frente, rodovia, dataNS, itens:[...] }
@@ -363,11 +392,15 @@ async function nuvemCarregar(){
   const linhas = j.dados||[];
   // 1ª passada: NS manuais (definição no obs) — registra antes das medições
   limparNotasManuais();
+  relatorios=[];
   linhas.forEach(function(d){
     if(d.frente==="__nota__" && d.obs!==""&&d.obs!=null){
       try{ const def=JSON.parse(d.obs); if(def&&def.frente) registrarNotaManual(String(d.ns), def); }catch(e){}
+    } else if(d.frente==="__relatorio__" && d.obs!==""&&d.obs!=null){
+      try{ const r=JSON.parse(d.obs); r.id=String(d.ns); relatorios.push(r); }catch(e){}
     }
   });
+  relatorios.sort(function(a,b){ return String(b.data||'').localeCompare(String(a.data||'')); });
   ordenarManifests();
   // 2ª passada: medições/observações
   linhas.forEach(function(d){
@@ -381,7 +414,7 @@ async function nuvemCarregar(){
       if(d.medicao!==""&&d.medicao!=null){ (horizMedicoes[d.ns]=horizMedicoes[d.ns]||{})[item]=Number(d.medicao); }
     }
   });
-  salvarMed(); salvarObs(); salvarDefMed(); salvarHorizMed();
+  salvarMed(); salvarObs(); salvarDefMed(); salvarHorizMed(); salvarRel();
 }
 function ordenarManifests(){
   manifest.sort((a,b)=> (a.rodovia+(a.trecho||"")).localeCompare(b.rodovia+(b.trecho||""),'pt'));
@@ -426,7 +459,7 @@ const NAV = [
     {id:"dashboard", t:"Dashboard", ic:"🏠", go:"viewDashboard()"},
     {id:"notas", t:"Notas de Serviço", ic:"📋", go:"viewHome()"},
     {id:"medicoes", t:"Medições", ic:"📊", soon:true},
-    {id:"relatorios", t:"Relatórios", ic:"📄", soon:true},
+    {id:"relatorios", t:"Relatórios", ic:"📄", go:"viewRelatorios()"},
     {id:"financeiro", t:"Financeiro", ic:"💰", go:"viewFinanceiro()"},
     {id:"cronograma", t:"Cronograma", ic:"📈", go:"viewCronograma()"},
   ]},
@@ -1498,6 +1531,75 @@ function excluirNota(id){
   if(frente==="vertical") viewVertical(); else if(frente==="defensa") viewDefensas(); else if(frente==="horizontal") viewHorizontal(); else viewHome();
 }
 
+/* ================= RELATÓRIOS (registro + link do Drive) ================= */
+function fmtDataRel(d){
+  if(!d) return '—';
+  const m=String(d).match(/^(\d{4})-(\d{2})(?:-(\d{2}))?$/);
+  if(m){ const meses=['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez']; return (m[3]?m[3]+'/':'')+meses[+m[2]-1]+'/'+m[1]; }
+  return esc(d);
+}
+function viewRelatorios(){
+  setNav("relatorios","Relatórios");
+  setCrumbs([{t:"Dashboard", go:"viewDashboard()"},{t:"Relatórios"}]);
+  const linhas = relatorios.map(function(r){
+    const abrir = r.link? `<a class="btn" href="${esc(r.link)}" target="_blank" rel="noopener">📄 Abrir PDF</a>` : '<span class="muted">sem link</span>';
+    return `<tr>
+      <td><b>${esc(r.titulo||'—')}</b></td>
+      <td>${r.tipo?`<span class="badge b-cinza">${esc(r.tipo)}</span>`:'—'}</td>
+      <td>${fmtDataRel(r.data)}</td>
+      <td style="text-align:center">${r.medicao?esc(r.medicao):'—'}</td>
+      <td>${abrir}</td>
+      <td style="text-align:right;white-space:nowrap"><span onclick="editarRelatorio('${r.id}')" title="Editar" style="cursor:pointer;color:var(--azul2);margin-right:12px">✎</span><span onclick="excluirRelatorio('${r.id}')" title="Excluir" style="cursor:pointer;color:var(--vermelho)">🗑</span></td>
+    </tr>`;
+  }).join('');
+  document.getElementById("view").innerHTML = `
+    <div class="pagehd"><div><h2>Relatórios</h2><div class="sb">Relatórios em PDF do contrato · arquivos no Google Drive</div></div>
+      <div style="margin-left:auto"><button class="btn pri" onclick="abrirRelatorio()">+ Adicionar relatório</button></div></div>
+    <div class="hint">Os PDFs ficam no <b>Google Drive</b> — aqui guardamos só o registro e o link (o site continua leve). Suba o PDF numa pasta do Drive compartilhada como "qualquer pessoa com o link", copie o link e cole ao cadastrar.</div>
+    ${relatorios.length? `<table><thead><tr><th>Título</th><th style="width:120px">Tipo</th><th style="width:110px">Data</th><th style="width:74px;text-align:center">Medição</th><th style="width:130px">PDF</th><th style="width:70px"></th></tr></thead><tbody>${linhas}</tbody></table>`
+      : `<div class="empty">Nenhum relatório cadastrado.<br>Use <b>+ Adicionar relatório</b> para registrar o primeiro.</div>`}`;
+}
+let relEditId=null;
+function abrirRelatorio(editId){
+  relEditId=editId||null;
+  const r = relEditId? relatorios.find(x=>x.id===relEditId) : null;
+  document.getElementById("relTitulo").value = r? (r.titulo||'') : '';
+  document.getElementById("relTipo").value = r? (r.tipo||'') : '';
+  document.getElementById("relData").value = r? (r.data||'') : '';
+  document.getElementById("relMed").value = r? (r.medicao||'') : '';
+  document.getElementById("relLink").value = r? (r.link||'') : '';
+  document.getElementById("dlgRelTitulo").textContent = relEditId? "Editar relatório" : "Adicionar relatório";
+  document.getElementById("dlgRelatorio").showModal();
+}
+function salvarRelatorio(){
+  const titulo=(document.getElementById("relTitulo").value||'').trim();
+  const tipo=(document.getElementById("relTipo").value||'').trim();
+  const data=(document.getElementById("relData").value||'').trim();
+  const medicao=(document.getElementById("relMed").value||'').trim();
+  const link=(document.getElementById("relLink").value||'').trim();
+  if(!titulo){ toast("Informe o título do relatório"); return; }
+  if(link && !/^https?:\/\//i.test(link)){ toast("O link deve começar com http:// ou https://"); return; }
+  const id = relEditId || ("rel_"+Date.now());
+  const rec={ titulo, tipo, data, medicao, link };
+  relatorios = relatorios.filter(x=>x.id!==id);
+  relatorios.push(Object.assign({id:id}, rec));
+  relatorios.sort(function(a,b){ return String(b.data||'').localeCompare(String(a.data||'')); });
+  salvarRel();
+  nuvemEnviar([{frente:"__relatorio__", ns:id, item:"meta", obs: JSON.stringify(rec)}]);
+  document.getElementById("dlgRelatorio").close();
+  toast(relEditId? "Relatório atualizado" : "Relatório adicionado");
+  viewRelatorios();
+}
+function editarRelatorio(id){ abrirRelatorio(id); }
+function excluirRelatorio(id){
+  if(!confirm("Excluir este relatório do painel? (o arquivo PDF no Drive não é apagado)")) return;
+  relatorios = relatorios.filter(x=>x.id!==id);
+  salvarRel();
+  nuvemEnviar([{frente:"__relatorio__", ns:id, item:"meta", obs: ""}]);
+  toast("Relatório excluído");
+  viewRelatorios();
+}
+
 /* ---------- boot ---------- */
 async function comRetry(fn, tentativas){
   let ultimo;
@@ -1508,7 +1610,7 @@ async function comRetry(fn, tentativas){
 }
 async function iniciar(){
   document.getElementById("view").innerHTML=`<div class="empty">Carregando…</div>`;
-  carregarMed(); carregarDefMed(); carregarHorizMed();
+  carregarMed(); carregarDefMed(); carregarHorizMed(); carregarRel();
   try{ await comRetry(carregarManifest); }
   catch(e){
     document.getElementById("view").innerHTML=`<div class="empty">Não consegui carregar os dados agora.<br><span class="muted">O servidor do preview pode estar reiniciando.</span><br><br><button class="btn pri" onclick="iniciar()">↻ Tentar de novo</button></div>`;
