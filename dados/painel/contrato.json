@@ -1,0 +1,234 @@
+{
+    "contrato":  "122/2021 - Lote 1",
+    "financeiro":  {
+                       "valorContrato":  111600000,
+                       "valorExecutado":  61092444.32,
+                       "saldo":  50507555.68,
+                       "pctExecucao":  54.74,
+                       "avancoOficial":  58.67,
+                       "nMedicao":  57,
+                       "prazoFinal":  "2026-10-29",
+                       "diasRestantes":  112,
+                       "dataAtualizacao":  "2026-07-08"
+                   },
+    "categorias":  [
+                       {
+                           "nome":  "Sinalização Horizontal",
+                           "valorContrato":  37711487.13,
+                           "valorExecutado":  10271796.71,
+                           "pct":  27.2
+                       },
+                       {
+                           "nome":  "Sinalização Vertical",
+                           "valorContrato":  29688052.41,
+                           "valorExecutado":  4484756.93,
+                           "pct":  15.1
+                       },
+                       {
+                           "nome":  "Dispositivos de Segurança",
+                           "valorContrato":  19048721.34,
+                           "valorExecutado":  6068774.43,
+                           "pct":  31.9
+                       },
+                       {
+                           "nome":  "Serviços Complementares",
+                           "valorContrato":  5872515,
+                           "valorExecutado":  667588.98,
+                           "pct":  11.4
+                       }
+                   ],
+    "curvaS":  [
+                   {
+                       "medicao":  38,
+                       "mes":  "2024-11-01",
+                       "previsto":  1463147.86,
+                       "executado":  1123222.77,
+                       "previstoAcum":  1463147.86,
+                       "executadoAcum":  1123222.77
+                   },
+                   {
+                       "medicao":  39,
+                       "mes":  "2024-12-01",
+                       "previsto":  1463147.86,
+                       "executado":  727087.43,
+                       "previstoAcum":  2926295.72,
+                       "executadoAcum":  1850310.2
+                   },
+                   {
+                       "medicao":  40,
+                       "mes":  "2025-01-01",
+                       "previsto":  1463147.86,
+                       "executado":  610065.78,
+                       "previstoAcum":  4389443.58,
+                       "executadoAcum":  2460375.98
+                   },
+                   {
+                       "medicao":  41,
+                       "mes":  "2025-02-01",
+                       "previsto":  1463147.86,
+                       "executado":  1043811.14,
+                       "previstoAcum":  5852591.44,
+                       "executadoAcum":  3504187.12
+                   },
+                   {
+                       "medicao":  42,
+                       "mes":  "2025-03-01",
+                       "previsto":  1595548.66,
+                       "executado":  1407199.53,
+                       "previstoAcum":  7448140.1,
+                       "executadoAcum":  4911386.65
+                   },
+                   {
+                       "medicao":  43,
+                       "mes":  "2025-04-01",
+                       "previsto":  1656964.6,
+                       "executado":  2871739.8,
+                       "previstoAcum":  9105104.7,
+                       "executadoAcum":  7783126.45
+                   },
+                   {
+                       "medicao":  44,
+                       "mes":  "2025-05-01",
+                       "previsto":  1463147.86,
+                       "executado":  723322.23,
+                       "previstoAcum":  10568252.56,
+                       "executadoAcum":  8506448.68
+                   },
+                   {
+                       "medicao":  45,
+                       "mes":  "2025-06-01",
+                       "previsto":  1656964.6,
+                       "executado":  490258.4,
+                       "previstoAcum":  12225217.16,
+                       "executadoAcum":  8996707.08
+                   },
+                   {
+                       "medicao":  46,
+                       "mes":  "2025-07-01",
+                       "previsto":  1463147.86,
+                       "executado":  658970.22,
+                       "previstoAcum":  13688365.02,
+                       "executadoAcum":  9655677.3
+                   },
+                   {
+                       "medicao":  47,
+                       "mes":  "2025-08-01",
+                       "previsto":  1463147.86,
+                       "executado":  1104974.2,
+                       "previstoAcum":  15151512.88,
+                       "executadoAcum":  10760651.5
+                   },
+                   {
+                       "medicao":  48,
+                       "mes":  "2025-09-01",
+                       "previsto":  1656964.6,
+                       "executado":  1052371.18,
+                       "previstoAcum":  16808477.48,
+                       "executadoAcum":  11813022.68
+                   },
+                   {
+                       "medicao":  49,
+                       "mes":  "2025-10-01",
+                       "previsto":  1463147.86,
+                       "executado":  595644.77,
+                       "previstoAcum":  18271625.34,
+                       "executadoAcum":  12408667.45
+                   },
+                   {
+                       "medicao":  50,
+                       "mes":  "2025-11-01",
+                       "previsto":  1463147.86,
+                       "executado":  1346120.79,
+                       "previstoAcum":  19734773.2,
+                       "executadoAcum":  13754788.24
+                   },
+                   {
+                       "medicao":  51,
+                       "mes":  "2025-12-01",
+                       "previsto":  1463147.86,
+                       "executado":  1093437.51,
+                       "previstoAcum":  21197921.06,
+                       "executadoAcum":  14848225.75
+                   },
+                   {
+                       "medicao":  52,
+                       "mes":  "2026-01-01",
+                       "previsto":  1463147.86,
+                       "executado":  1161050.53,
+                       "previstoAcum":  22661068.92,
+                       "executadoAcum":  16009276.28
+                   },
+                   {
+                       "medicao":  53,
+                       "mes":  "2026-02-01",
+                       "previsto":  1463147.86,
+                       "executado":  2110812.61,
+                       "previstoAcum":  24124216.78,
+                       "executadoAcum":  18120088.89
+                   },
+                   {
+                       "medicao":  54,
+                       "mes":  "2026-03-01",
+                       "previsto":  1656964.6,
+                       "executado":  413327.68,
+                       "previstoAcum":  25781181.38,
+                       "executadoAcum":  18533416.57
+                   },
+                   {
+                       "medicao":  55,
+                       "mes":  "2026-04-01",
+                       "previsto":  1463147.86,
+                       "executado":  171013.1,
+                       "previstoAcum":  27244329.24,
+                       "executadoAcum":  18704429.67
+                   },
+                   {
+                       "medicao":  56,
+                       "mes":  "2026-05-01",
+                       "previsto":  1656964.6,
+                       "executado":  665737.65,
+                       "previstoAcum":  28901293.84,
+                       "executadoAcum":  19370167.32
+                   },
+                   {
+                       "medicao":  57,
+                       "mes":  "2026-06-01",
+                       "previsto":  1463147.86,
+                       "executado":  2122747.67,
+                       "previstoAcum":  30364441.7,
+                       "executadoAcum":  21492914.99
+                   },
+                   {
+                       "medicao":  58,
+                       "mes":  "2026-07-01",
+                       "previsto":  1463147.86,
+                       "executado":  0,
+                       "previstoAcum":  31827589.56,
+                       "executadoAcum":  21492914.99
+                   },
+                   {
+                       "medicao":  59,
+                       "mes":  "2026-08-01",
+                       "previsto":  1656964.6,
+                       "executado":  0,
+                       "previstoAcum":  33484554.16,
+                       "executadoAcum":  21492914.99
+                   },
+                   {
+                       "medicao":  60,
+                       "mes":  "2026-09-01",
+                       "previsto":  1463147.86,
+                       "executado":  0,
+                       "previstoAcum":  34947702.02,
+                       "executadoAcum":  21492914.99
+                   },
+                   {
+                       "medicao":  61,
+                       "mes":  "2026-10-01",
+                       "previsto":  1684722.03,
+                       "executado":  0,
+                       "previstoAcum":  36632424.05,
+                       "executadoAcum":  21492914.99
+                   }
+               ]
+}

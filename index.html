@@ -7,27 +7,126 @@
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <style>
   :root{
-    --azul:#0b4f8a; --azul2:#0d6efd; --verde:#198754; --amarelo:#f0ad4e;
-    --cinza:#6c757d; --cinzaClaro:#f2f4f7; --borda:#dfe3e8; --texto:#1f2d3d;
-    --vermelho:#c0392b;
+    --azul:#0b4f8a; --azul2:#2563eb; --azulEsc:#0f2a4a; --verde:#198754; --amarelo:#f0ad4e;
+    --cinza:#6c757d; --cinzaClaro:#f2f4f7; --borda:#e2e7ee; --texto:#1f2d3d;
+    --vermelho:#c0392b; --bg:#eef1f6; --side:248px;
   }
   *{box-sizing:border-box}
-  body{margin:0;font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:var(--texto);background:#eef1f5}
-  header.top{background:var(--azul);color:#fff;padding:12px 18px;display:flex;align-items:center;gap:12px;position:sticky;top:0;z-index:10}
-  header.top h1{font-size:17px;margin:0;font-weight:600}
-  header.top .sub{font-size:12px;opacity:.8;margin-left:auto}
-  .wrap{max-width:1100px;margin:0 auto;padding:16px}
+  body{margin:0;font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:var(--texto);background:var(--bg)}
+
+  /* ===== layout com menu lateral ===== */
+  .app{min-height:100vh}
+  .sidebar{position:fixed;top:0;left:0;bottom:0;width:var(--side);background:#fff;border-right:1px solid var(--borda);
+    display:flex;flex-direction:column;z-index:30;transition:width .18s;overflow:hidden}
+  .sidebar .brand{display:flex;align-items:center;gap:10px;padding:16px 18px;border-bottom:1px solid var(--borda)}
+  .sidebar .brand .logo{width:34px;height:34px;border-radius:9px;background:linear-gradient(135deg,var(--azul2),#1e40af);color:#fff;display:flex;align-items:center;justify-content:center;font-size:18px;flex:none}
+  .sidebar .brand .bt{font-weight:800;font-size:16px;letter-spacing:.02em;line-height:1}
+  .sidebar .brand .bs{font-size:10px;color:var(--cinza);text-transform:uppercase;letter-spacing:.08em;margin-top:3px}
+  .nav{flex:1;overflow-y:auto;padding:10px 10px 20px}
+  .nav .grp{font-size:10.5px;font-weight:700;color:#9aa4b2;text-transform:uppercase;letter-spacing:.06em;margin:16px 10px 6px}
+  .nav a{display:flex;align-items:center;gap:11px;padding:9px 11px;border-radius:9px;color:#3a4756;font-size:14px;cursor:pointer;text-decoration:none;white-space:nowrap;font-weight:500}
+  .nav a .ic{width:20px;text-align:center;font-size:16px;flex:none}
+  .nav a:hover{background:#f3f6fb}
+  .nav a.on{background:#eaf1fe;color:var(--azul2);font-weight:700}
+  .nav a.soon{color:#aab3bf;cursor:default}
+  .nav a.soon:hover{background:transparent}
+  .nav a .tag{margin-left:auto;font-size:9px;background:#eef0f3;color:#9aa4b2;padding:1px 6px;border-radius:999px;text-transform:uppercase;letter-spacing:.03em}
+  .side-foot{border-top:1px solid var(--borda);padding:10px}
+  .side-foot button{width:100%;display:flex;align-items:center;gap:9px;justify-content:center;background:#f5f7fa;border:1px solid var(--borda);border-radius:9px;padding:9px;font-size:13px;color:#41505f;cursor:pointer}
+  .side-foot button:hover{background:#eef1f5}
+  /* recolhido (só ícones) */
+  body.side-collapsed .sidebar{width:66px}
+  body.side-collapsed .sidebar .bt,body.side-collapsed .sidebar .bs,body.side-collapsed .nav a span.lbl,body.side-collapsed .nav .grp,body.side-collapsed .nav a .tag,body.side-collapsed .side-foot .lbl{display:none}
+  body.side-collapsed .nav a{justify-content:center;padding:9px}
+  body.side-collapsed .main{margin-left:66px}
+
+  .main{margin-left:var(--side);min-height:100vh;display:flex;flex-direction:column;transition:margin-left .18s}
+  .topbar{position:sticky;top:0;z-index:20;background:#fff;border-bottom:1px solid var(--borda);
+    display:flex;align-items:center;gap:14px;padding:0 20px;height:60px}
+  .topbar .burger{background:none;border:none;font-size:20px;cursor:pointer;color:#41505f;padding:4px 6px;border-radius:8px}
+  .topbar .burger:hover{background:#f1f4f8}
+  .topbar .ttl{font-weight:700;font-size:16px}
+  .topbar .search{flex:1;max-width:520px;margin:0 auto;position:relative}
+  .topbar .search input{width:100%;padding:9px 12px 9px 34px;border:1px solid var(--borda);border-radius:9px;font-size:13px;background:#f7f9fc}
+  .topbar .search .mag{position:absolute;left:11px;top:9px;color:#9aa4b2;font-size:13px}
+  .topbar .usr{display:flex;align-items:center;gap:10px}
+  .topbar .usr .av{width:34px;height:34px;border-radius:50%;background:linear-gradient(135deg,#2563eb,#7c3aed);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px}
+  .topbar .usr .un{font-size:13px;font-weight:700;line-height:1.1}
+  .topbar .usr .ur{font-size:11px;color:var(--cinza)}
+  .content{padding:22px;max-width:1280px;width:100%;margin:0 auto}
+
+  /* esconde o chrome antes do login */
+  body:not(.app-ready) .sidebar,body:not(.app-ready) .topbar{display:none}
+  body:not(.app-ready) .main{margin-left:0}
+  body:not(.app-ready) .content{max-width:460px}
+
+  /* ===== responsivo (celular/tablet): menu vira gaveta ===== */
+  .side-backdrop{display:none;position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:25}
+  @media(max-width:860px){
+    .sidebar{transform:translateX(-100%);width:248px;box-shadow:0 0 40px rgba(0,0,0,.2)}
+    .main{margin-left:0 !important}
+    body.side-open .sidebar{transform:none}
+    body.side-open .side-backdrop{display:block}
+    .topbar .search{display:none}
+    body.side-collapsed .sidebar{width:248px}
+    body.side-collapsed .sidebar .bt,body.side-collapsed .sidebar .bs,body.side-collapsed .nav a span.lbl,body.side-collapsed .nav .grp,body.side-collapsed .nav a .tag,body.side-collapsed .side-foot .lbl{display:revert}
+    body.side-collapsed .nav a{justify-content:flex-start;padding:9px 11px}
+    .grid3{grid-template-columns:1fr}
+    .content{padding:16px}
+  }
+  @media(max-width:520px){ .pagehd h2{font-size:19px} }
+
+  /* ===== cabeçalho da página / dashboard ===== */
+  .pagehd{display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:18px}
+  .pagehd h2{margin:0;font-size:22px}
+  .pagehd .sb{font-size:13px;color:var(--cinza);margin-top:3px}
+  .chip{display:inline-block;padding:3px 10px;border-radius:999px;font-size:12px;font-weight:700}
+  .chip.exec{background:#e6f4ec;color:#157347}
   .crumbs{font-size:13px;color:var(--cinza);margin-bottom:14px}
   .crumbs a{color:var(--azul2);cursor:pointer;text-decoration:none}
   .crumbs a:hover{text-decoration:underline}
-  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px}
-  .card{background:#fff;border:1px solid var(--borda);border-radius:12px;padding:18px;cursor:pointer;transition:.12s;text-align:center}
+
+  /* KPIs */
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:14px;margin-bottom:16px}
+  .kpi{background:#fff;border:1px solid var(--borda);border-radius:14px;padding:16px 18px}
+  .kpi .kl{font-size:11px;color:var(--cinza);text-transform:uppercase;letter-spacing:.04em;font-weight:600}
+  .kpi .kv{font-size:26px;font-weight:800;margin:6px 0 2px;line-height:1.05}
+  .kpi .kd{font-size:12px;color:var(--cinza)}
+  .kpi .kico{float:right;width:38px;height:38px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:19px}
+  .kpi .prog{margin-top:8px}
+  .grid3{display:grid;grid-template-columns:1.1fr 1.4fr 1.1fr;gap:16px;align-items:start}
+  .panel{background:#fff;border:1px solid var(--borda);border-radius:14px;padding:16px 18px}
+  .panel h3{margin:0 0 12px;font-size:15px;display:flex;align-items:center}
+  .panel h3 .see{margin-left:auto;font-size:12px;color:var(--azul2);cursor:pointer;font-weight:600}
+  .feed{display:flex;flex-direction:column;gap:2px}
+  .feed .it{display:flex;gap:10px;padding:9px 0;border-bottom:1px solid #eef1f5}
+  .feed .it:last-child{border-bottom:none}
+  .feed .it .fi{width:30px;height:30px;border-radius:8px;background:#eef2f8;display:flex;align-items:center;justify-content:center;font-size:15px;flex:none}
+  .feed .it .ft{font-size:13px;font-weight:600}
+  .feed .it .fs{font-size:12px;color:var(--cinza)}
+  .feed .it .fw{margin-left:auto;font-size:11px;color:#9aa4b2;white-space:nowrap}
+  .finfoot{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px;border-top:1px solid #eef1f5;padding-top:12px}
+  .finfoot .fb{flex:1;min-width:120px}
+  .finfoot .fb .l{font-size:11px;color:var(--cinza);text-transform:uppercase;letter-spacing:.03em}
+  .finfoot .fb .v{font-size:15px;font-weight:800;margin-top:2px}
+  .chart{width:100%;height:230px}
+  .chart .axis{stroke:#e5e9f0;stroke-width:1}
+  .chart .gl{stroke:#eef1f6;stroke-width:1}
+  .chart .lp{fill:none;stroke:#9aa4b2;stroke-width:2;stroke-dasharray:5 4}
+  .chart .le{fill:none;stroke:var(--azul2);stroke-width:2.5}
+  .chart .lbl{font-size:10px;fill:#9aa4b2}
+  .lgd{display:flex;gap:16px;font-size:12px;color:#41505f;margin-bottom:6px}
+  .lgd .d{display:inline-block;width:12px;height:3px;border-radius:2px;vertical-align:middle;margin-right:5px}
+
+  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:14px}
+  .card{background:#fff;border:1px solid var(--borda);border-radius:12px;padding:16px;cursor:pointer;transition:.12s;display:flex;align-items:center;gap:13px}
   .card:hover{box-shadow:0 4px 14px rgba(0,0,0,.08);transform:translateY(-2px);border-color:var(--azul2)}
-  .card.disabled{opacity:.5;cursor:default;filter:grayscale(.4)}
+  .card.disabled{opacity:.55;cursor:default}
   .card.disabled:hover{box-shadow:none;transform:none;border-color:var(--borda)}
-  .card .ic{font-size:30px}
-  .card .t{font-weight:600;margin-top:8px}
-  .card .d{font-size:12px;color:var(--cinza);margin-top:4px}
+  .card .ic{width:46px;height:46px;border-radius:11px;display:flex;align-items:center;justify-content:center;font-size:22px;flex:none;color:#fff}
+  .card .t{font-weight:700;font-size:14px}
+  .card .d{font-size:12px;color:var(--cinza);margin-top:2px}
+  .card .go{margin-left:auto;color:#c2cad4;font-size:18px}
   .toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px}
   input.busca{flex:1;min-width:180px;padding:9px 12px;border:1px solid var(--borda);border-radius:8px;font-size:14px}
   select,button{font-size:14px}
@@ -37,7 +136,7 @@
   .btn.pri:hover{background:#0b5ed7}
   table{width:100%;border-collapse:separate;border-spacing:0;background:#fff;border:1px solid var(--borda);border-radius:10px}
   th,td{padding:9px 10px;text-align:left;font-size:13px;border-bottom:1px solid var(--borda)}
-  th{background:var(--cinzaClaro);font-weight:600;position:sticky;top:51px;z-index:2}
+  th{background:var(--cinzaClaro);font-weight:600;position:sticky;top:60px;z-index:2}
   thead tr th:first-child{border-top-left-radius:10px}
   thead tr th:last-child{border-top-right-radius:10px}
   tbody tr:last-child td:first-child{border-bottom-left-radius:10px}
@@ -80,15 +179,33 @@
 </style>
 </head>
 <body>
-<header class="top">
-  <span style="font-size:20px">🛣️</span>
-  <h1>PROSEG · Painel de Controle</h1>
-  <span class="sub">DER/PR · Contrato 122/2021 — Lote 1</span>
-</header>
-
-<div class="wrap">
-  <div class="crumbs" id="crumbs"></div>
-  <div id="view"></div>
+<div class="app">
+  <aside class="sidebar" id="sidebar">
+    <div class="brand">
+      <div class="logo">🛣️</div>
+      <div><div class="bt">PROSEG</div><div class="bs">Painel do Contrato</div></div>
+    </div>
+    <nav class="nav" id="nav"></nav>
+    <div class="side-foot">
+      <button onclick="toggleSide()">⟨ <span class="lbl">Recolher menu</span></button>
+    </div>
+  </aside>
+  <div class="main">
+    <header class="topbar">
+      <button class="burger" onclick="toggleSide()" title="Menu">☰</button>
+      <div class="ttl" id="topTtl">Painel do Contrato</div>
+      <div class="search"><span class="mag">🔍</span><input id="topSearch" placeholder="Buscar rodovia (ex.: PR-281)…" onkeydown="if(event.key==='Enter')buscaGlobal()"></div>
+      <div class="usr" onclick="sair()" style="cursor:pointer" title="Sair do painel">
+        <div class="av">EI</div>
+        <div><div class="un">Engª Isabela</div><div class="ur">PROSEG · Sair ⏻</div></div>
+      </div>
+    </header>
+    <div class="content">
+      <div class="crumbs" id="crumbs"></div>
+      <div id="view"></div>
+    </div>
+  </div>
+  <div class="side-backdrop" onclick="fecharSide()"></div>
 </div>
 
 <dialog id="dlgImport">
@@ -139,6 +256,11 @@ let observacoes = {};       // id -> { ordem(str) -> texto }
 let atualNS = null;         // id da NS aberta
 let filtroMed = "todas";    // 'todas' | 'pendentes' | número
 
+/* ===== dados do contrato (financeiro / curva S) ===== */
+const DADOS_CONTRATO = "dados/painel/contrato.json";
+let contrato = null;        // objeto contrato.json
+let navAtivo = "dashboard"; // item ativo do menu lateral
+
 /* ===== estado das DEFENSAS (Dispositivos de Segurança) ===== */
 const DADOS_DEF = "dados/defensas/";
 const LS_DEF = "proseg_painel_defensas_medicoes_v1";
@@ -179,16 +301,18 @@ async function nuvemCarregar(){
 }
 /* tela de login */
 function viewLogin(msg){
+  document.body.classList.remove("app-ready");
+  document.getElementById("crumbs").innerHTML="";
   document.getElementById("view").innerHTML = `
-    <div style="max-width:340px;margin:40px auto;text-align:center">
-      <div style="font-size:40px">🔒</div>
-      <h2 style="margin:10px 0 4px">Acesso ao painel</h2>
-      <p class="muted" style="font-size:13px;margin-top:0">Digite a senha para acessar os dados de medição.</p>
-      <input type="password" id="senhaInput" placeholder="Senha" autocomplete="current-password"
-        style="width:100%;padding:11px;border:1px solid var(--borda);border-radius:8px;font-size:15px;margin:10px 0"
+    <div style="text-align:center;padding-top:30px">
+      <div style="width:60px;height:60px;border-radius:16px;margin:0 auto;background:linear-gradient(135deg,var(--azul2),#1e40af);color:#fff;display:flex;align-items:center;justify-content:center;font-size:30px">🛣️</div>
+      <h2 style="margin:16px 0 2px">Painel do Contrato — PROSEG</h2>
+      <p class="muted" style="font-size:13px;margin-top:0">DER/PR · Contrato 122/2021 — Lote 1</p>
+      <input type="password" id="senhaInput" placeholder="Senha de acesso" autocomplete="current-password"
+        style="width:100%;padding:12px;border:1px solid var(--borda);border-radius:10px;font-size:15px;margin:14px 0 10px"
         onkeydown="if(event.key==='Enter')fazerLogin()">
       ${msg?`<p style="color:var(--vermelho);font-size:13px;margin:4px 0">${esc(msg)}</p>`:''}
-      <button class="btn pri" style="width:100%" onclick="fazerLogin()">Entrar</button>
+      <button class="btn pri" style="width:100%;padding:11px" onclick="fazerLogin()">Entrar</button>
     </div>`;
   const i=document.getElementById("senhaInput"); if(i) i.focus();
 }
@@ -200,9 +324,239 @@ async function fazerLogin(){
   try{ await nuvemCarregar(); }
   catch(e){ senhaNuvem=""; viewLogin(String(e.message)==="senha"?"Senha incorreta.":"Sem conexão com a nuvem. Tente de novo."); return; }
   sessionStorage.setItem("proseg_senha", senhaNuvem);
-  viewHome();
+  try{ await carregarContrato(); }catch(e){ contrato=null; }
+  document.body.classList.add("app-ready");
+  renderNav();
+  viewDashboard();
 }
-function sair(){ sessionStorage.removeItem("proseg_senha"); senhaNuvem=""; viewLogin(); }
+function sair(){ sessionStorage.removeItem("proseg_senha"); senhaNuvem=""; document.body.classList.remove("app-ready"); viewLogin(); }
+
+/* ===== menu lateral / navegação ===== */
+const NAV = [
+  {grp:"Gestão do contrato", itens:[
+    {id:"dashboard", t:"Dashboard", ic:"🏠", go:"viewDashboard()"},
+    {id:"notas", t:"Notas de Serviço", ic:"📋", go:"viewHome()"},
+    {id:"medicoes", t:"Medições", ic:"📊", soon:true},
+    {id:"relatorios", t:"Relatórios", ic:"📄", soon:true},
+    {id:"financeiro", t:"Financeiro", ic:"💰", go:"viewFinanceiro()"},
+    {id:"cronograma", t:"Cronograma", ic:"📈", go:"viewCronograma()"},
+  ]},
+  {grp:"Sinalização", itens:[
+    {id:"vertical", t:"Sinalização Vertical", ic:"🚦", go:"viewVertical()"},
+    {id:"horizontal", t:"Sinalização Horizontal", ic:"🛣️", soon:true},
+    {id:"dispositivos", t:"Dispositivos", ic:"🛡️", go:"viewDefensas()"},
+    {id:"retro", t:"Retrorrefletância", ic:"🔦", soon:true},
+  ]},
+  {grp:"Documentos e arquivos", itens:[
+    {id:"fotos", t:"Fotos", ic:"📷", soon:true},
+    {id:"arquivos", t:"Arquivos", ic:"🗂️", soon:true},
+    {id:"projetos", t:"Projetos Executivos", ic:"📐", soon:true},
+  ]},
+];
+function renderNav(){
+  const n=document.getElementById("nav");
+  n.innerHTML = NAV.map(g=>
+    `<div class="grp">${esc(g.grp)}</div>`+
+    g.itens.map(it=> it.soon
+      ? `<a class="soon" title="Em breve"><span class="ic">${it.ic}</span><span class="lbl">${esc(it.t)}</span><span class="tag">em breve</span></a>`
+      : `<a data-id="${it.id}" class="${navAtivo===it.id?'on':''}" onclick="${it.go}"><span class="ic">${it.ic}</span><span class="lbl">${esc(it.t)}</span></a>`
+    ).join('')
+  ).join('');
+}
+function setNav(id, titulo){
+  navAtivo=id;
+  document.querySelectorAll('#nav a[data-id]').forEach(a=>a.classList.toggle('on', a.getAttribute('data-id')===id));
+  if(titulo) document.getElementById("topTtl").textContent=titulo;
+}
+function toggleSide(){
+  if(window.innerWidth<=860){ document.body.classList.toggle("side-open"); }
+  else { document.body.classList.remove("side-open"); document.body.classList.toggle("side-collapsed"); }
+}
+function fecharSide(){ document.body.classList.remove("side-open"); }
+/* no celular, ao clicar num item do menu, fecha a gaveta */
+document.addEventListener("click", function(e){ if(e.target.closest("#nav a") && window.innerWidth<=860) fecharSide(); });
+function buscaGlobal(){
+  const q=(document.getElementById("topSearch").value||"").trim();
+  viewVertical();
+  const b=document.getElementById("buscaNS"); if(b){ b.value=q; renderListaNS(); }
+}
+
+/* ---------- carregamento do contrato (financeiro / curva S) ---------- */
+async function carregarContrato(){
+  const r = await fetch(DADOS_CONTRATO, {cache:"no-store"});
+  if(!r.ok) throw new Error("contrato indisponível");
+  contrato = await r.json();
+}
+
+/* ---------- formatação ---------- */
+function fmtBRL(n){ return "R$ "+Number(n||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function fmtMi(n){ n=Number(n||0); return "R$ "+(n/1e6).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})+" mi"; }
+function fmtN(n){ return Number(n||0).toLocaleString('pt-BR'); }
+function fmtDataBR(iso){ if(!iso) return "—"; const p=String(iso).split('-'); return p.length===3?(p[2]+"/"+p[1]+"/"+p[0]):iso; }
+const MES3=["jan","fev","mar","abr","mai","jun","jul","ago","set","out","nov","dez"];
+function mesLabel(iso){ const p=String(iso).split('-'); if(p.length<2) return iso; return MES3[parseInt(p[1],10)-1]+"/"+p[0].slice(2); }
+
+/* ---------- gráfico da curva S (SVG puro) ---------- */
+function svgCurva(pts){
+  if(!pts||!pts.length) return '<div class="empty">Sem dados de curva.</div>';
+  const W=640,H=230, ml=52,mr=14,mt=12,mb=26, pw=W-ml-mr, ph=H-mt-mb;
+  const ymax=(Math.max.apply(null, pts.map(p=>Math.max(p.previstoAcum,p.executadoAcum)))||1)*1.05;
+  const X=i=> ml + (pts.length===1?pw/2 : i/(pts.length-1)*pw);
+  const Y=v=> mt + ph - (v/ymax)*ph;
+  const linha=k=> pts.map((p,i)=>(i?'L':'M')+X(i).toFixed(1)+' '+Y(p[k]).toFixed(1)).join(' ');
+  let grid='',ylab='';
+  for(let g=0;g<=4;g++){ const vy=(mt+ph-(g/4)*ph).toFixed(1), val=ymax*g/4;
+    grid+=`<line class="gl" x1="${ml}" y1="${vy}" x2="${W-mr}" y2="${vy}"/>`;
+    ylab+=`<text class="lbl" x="${ml-7}" y="${(+vy+3)}" text-anchor="end">${(val/1e6).toFixed(0)}M</text>`;
+  }
+  let xlab=''; const step=Math.max(1,Math.ceil(pts.length/7));
+  pts.forEach((p,i)=>{ if(i%step===0||i===pts.length-1) xlab+=`<text class="lbl" x="${X(i).toFixed(1)}" y="${H-8}" text-anchor="middle">${esc(mesLabel(p.mes))}</text>`; });
+  return `<svg class="chart" viewBox="0 0 ${W} ${H}">
+    ${grid}
+    <line class="axis" x1="${ml}" y1="${mt}" x2="${ml}" y2="${mt+ph}"/>
+    <line class="axis" x1="${ml}" y1="${mt+ph}" x2="${W-mr}" y2="${mt+ph}"/>
+    ${ylab}${xlab}
+    <path class="lp" d="${linha('previstoAcum')}"/>
+    <path class="le" d="${linha('executadoAcum')}"/>
+  </svg>`;
+}
+
+/* ================= DASHBOARD ================= */
+function viewDashboard(){
+  atualNS=null; defAtual=null;
+  setNav("dashboard","Painel do Contrato");
+  document.getElementById("crumbs").innerHTML="";
+  const f=(contrato&&contrato.financeiro)||{};
+  const pct=f.pctExecucao!=null?f.pctExecucao:0;
+  const nNotas=manifest.length+defManifest.length;
+  // estatísticas de campo
+  const totPlacas=manifest.reduce((s,m)=>s+(m.totalPlacas||0),0);
+  const totMedVert=manifest.reduce((s,m)=>s+statNS(m.id).medidas,0);
+  const totTramos=defManifest.reduce((s,m)=>s+(m.nItens||0),0);
+  const totMedDef=defManifest.reduce((s,m)=>s+statDef(m.id).medidas,0);
+  const curva=(contrato&&contrato.curvaS)||[];
+  const ult=curva.slice(-12);
+
+  const kpi=(l,v,d,ic,bg,extra)=>`<div class="kpi"><div class="kico" style="background:${bg}22;color:${bg}">${ic}</div>
+     <div class="kl">${l}</div><div class="kv">${v}</div><div class="kd">${d}</div>${extra||''}</div>`;
+  const kpis=`<div class="kpis">
+    ${kpi("Execução financeira", pct.toLocaleString('pt-BR')+"%", "Percentual executado","📈","#2563eb",
+        `<div class="prog"><i style="width:${Math.min(100,pct)}%"></i></div>`)}
+    ${kpi("Notas de Serviço", fmtN(nNotas), "Notas cadastradas","📋","#16a34a")}
+    ${kpi("Medições", f.nMedicao||"—", "Medições realizadas","📊","#7c3aed")}
+    ${kpi("Valor executado", fmtMi(f.valorExecutado), "de "+fmtMi(f.valorContrato),"💰","#0891b2")}
+    ${kpi("Prazo contratual", fmtDataBR(f.prazoFinal), (f.diasRestantes!=null?f.diasRestantes+" dias restantes":""),"📅","#e11d48")}
+  </div>`;
+
+  const cards=[
+    {t:"Sinalização Vertical", d:manifest.length+" notas de serviço", ic:"🚦", bg:"#e11d48", go:"viewVertical()"},
+    {t:"Sinalização Horizontal", d:"em breve", ic:"🛣️", bg:"#16a34a", off:true},
+    {t:"Dispositivos de Segurança", d:defManifest.length+" notas de serviço", ic:"🛡️", bg:"#f59e0b", go:"viewDefensas()"},
+    {t:"Projeto Executivo", d:"em breve", ic:"📐", bg:"#7c3aed", off:true},
+    {t:"Financeiro", d:"Resumo financeiro", ic:"💰", bg:"#2563eb", go:"viewFinanceiro()"},
+    {t:"Cronograma / Curva S", d:"Evolução física-financeira", ic:"📈", bg:"#0891b2", go:"viewCronograma()"},
+    {t:"Retrorrefletância", d:"em breve", ic:"🔦", bg:"#0d9488", off:true},
+    {t:"Arquivos", d:"em breve", ic:"🗂️", bg:"#6b7280", off:true},
+  ];
+  const cardsHtml=`<div class="cards" style="margin-bottom:18px">`+cards.map(o=>
+    `<div class="card ${o.off?'disabled':''}" ${o.off?'':`onclick="${o.go}"`}>
+       <div class="ic" style="background:${o.bg}">${o.ic}</div>
+       <div><div class="t">${esc(o.t)}</div><div class="d">${esc(o.d)}</div></div>
+       ${o.off?'<span class="go">›</span>':'<span class="go">›</span>'}</div>`).join('')+`</div>`;
+
+  // últimas atividades (derivadas dos dados)
+  const ativ=[
+    {ic:"📊", t:"Medição "+(f.nMedicao||"")+" registrada", s:"Executado acumulado "+fmtMi(f.valorExecutado), w:fmtDataBR(f.dataAtualizacao)},
+    {ic:"📈", t:"Curva S atualizada", s:curva.length+" medições no período de prorrogação", w:""},
+    {ic:"🚦", t:"Sinalização vertical", s:fmtN(totMedVert)+" de "+fmtN(totPlacas)+" placas medidas", w:""},
+    {ic:"🛡️", t:"Dispositivos de segurança", s:fmtN(totMedDef)+" de "+fmtN(totTramos)+" tramos medidos", w:""},
+  ];
+  const feed=`<div class="panel"><h3>Últimas atividades</h3><div class="feed">`+
+    ativ.map(a=>`<div class="it"><div class="fi">${a.ic}</div><div><div class="ft">${esc(a.t)}</div><div class="fs">${esc(a.s)}</div></div>${a.w?`<div class="fw">${esc(a.w)}</div>`:''}</div>`).join('')+`</div></div>`;
+
+  const chartPanel=`<div class="panel"><h3>Evolução financeira <span class="see" onclick="viewCronograma()">Ver curva S</span></h3>
+    <div class="lgd"><span><span class="d" style="background:#9aa4b2"></span>Previsto (acum.)</span><span><span class="d" style="background:var(--azul2)"></span>Executado (acum.)</span></div>
+    ${svgCurva(ult)}
+    <div class="finfoot">
+      <div class="fb"><div class="l">Valor do contrato</div><div class="v">${fmtMi(f.valorContrato)}</div></div>
+      <div class="fb"><div class="l">Valor executado</div><div class="v" style="color:var(--azul2)">${fmtMi(f.valorExecutado)}</div></div>
+      <div class="fb"><div class="l">Saldo contratual</div><div class="v" style="color:var(--verde)">${fmtMi(f.saldo)}</div></div>
+    </div></div>`;
+
+  // pendências (rodovias sem medição)
+  const pend=manifest.filter(m=>statNS(m.id).medidas===0).slice(0,5)
+    .map(m=>({ic:"🚦", t:m.rodovia, s:"Levantamento vertical pendente"}));
+  if(!pend.length) pend.push({ic:"✅", t:"Sem pendências de levantamento", s:"Todas as rodovias têm medição"});
+  const pendPanel=`<div class="panel"><h3>Pendências <span class="see" onclick="viewHome()">Ver todas</span></h3><div class="feed">`+
+    pend.map(p=>`<div class="it"><div class="fi">${p.ic}</div><div><div class="ft">${esc(p.t)}</div><div class="fs">${esc(p.s)}</div></div></div>`).join('')+`</div></div>`;
+
+  document.getElementById("view").innerHTML=`
+    <div class="pagehd">
+      <div><h2>Contrato 122/2021 – Lote 1 <span class="chip exec">Em execução</span></h2>
+        <div class="sb">DER/PR – Departamento de Estradas de Rodagem do Paraná${contrato?'':'  ·  <span style="color:var(--vermelho)">dados do contrato não carregados</span>'}</div></div>
+    </div>
+    ${kpis}
+    ${cardsHtml}
+    <div class="grid3">${feed}${chartPanel}${pendPanel}</div>`;
+}
+
+/* ================= FINANCEIRO ================= */
+function viewFinanceiro(){
+  atualNS=null;
+  setNav("financeiro","Financeiro");
+  setCrumbs([{t:"Dashboard", go:"viewDashboard()"},{t:"Financeiro"}]);
+  const f=(contrato&&contrato.financeiro)||{};
+  const cats=(contrato&&contrato.categorias)||[];
+  const kpi=(l,v,d,bg)=>`<div class="kpi"><div class="kl">${l}</div><div class="kv" style="color:${bg}">${v}</div><div class="kd">${d}</div></div>`;
+  const linhas=cats.map(c=>`<tr>
+      <td><b>${esc(c.nome)}</b></td>
+      <td style="text-align:right">${fmtBRL(c.valorContrato)}</td>
+      <td style="text-align:right">${fmtBRL(c.valorExecutado)}</td>
+      <td style="min-width:150px"><div style="display:flex;align-items:center;gap:8px"><div class="prog" style="flex:1"><i style="width:${Math.min(100,c.pct)}%"></i></div><span style="white-space:nowrap;font-weight:600">${c.pct.toLocaleString('pt-BR')}%</span></div></td>
+    </tr>`).join('');
+  document.getElementById("view").innerHTML=`
+    <div class="pagehd"><div><h2>Financeiro</h2><div class="sb">Posição contratual — medição ${f.nMedicao||"—"} · atualizado em ${fmtDataBR(f.dataAtualizacao)}</div></div></div>
+    <div class="kpis">
+      ${kpi("Valor do contrato", fmtMi(f.valorContrato), "Contrato + prorrogação","#1f2d3d")}
+      ${kpi("Valor executado", fmtMi(f.valorExecutado), (f.pctExecucao||0).toLocaleString('pt-BR')+"% do contrato","#2563eb")}
+      ${kpi("Saldo contratual", fmtMi(f.saldo), "A executar","#16a34a")}
+      ${kpi("Avanço (prorrogação)", (f.avancoOficial!=null?f.avancoOficial.toLocaleString('pt-BR')+"%":"—"), "Curva S do período","#7c3aed")}
+    </div>
+    <div class="panel"><h3>Execução por categoria de serviço</h3>
+      <table><thead><tr><th>Categoria</th><th style="text-align:right">Valor contratado</th><th style="text-align:right">Executado</th><th>Andamento</th></tr></thead>
+      <tbody>${linhas||'<tr><td colspan="4" class="empty">Sem dados de categoria.</td></tr>'}</tbody></table>
+      <p class="muted" style="font-size:12px;margin:10px 0 0">Valores por categoria conforme o Quadro de Execução (planilha de medição). O total do contrato considera o valor oficial (contrato + prorrogação + reajustes).</p>
+    </div>`;
+}
+
+/* ================= CRONOGRAMA / CURVA S ================= */
+function viewCronograma(){
+  atualNS=null;
+  setNav("cronograma","Cronograma / Curva S");
+  setCrumbs([{t:"Dashboard", go:"viewDashboard()"},{t:"Cronograma / Curva S"}]);
+  const f=(contrato&&contrato.financeiro)||{};
+  const curva=(contrato&&contrato.curvaS)||[];
+  const linhas=curva.slice().reverse().map(p=>`<tr>
+      <td><b>Medição ${p.medicao}</b></td>
+      <td class="muted">${esc(mesLabel(p.mes))}</td>
+      <td style="text-align:right">${fmtBRL(p.previsto)}</td>
+      <td style="text-align:right">${fmtBRL(p.executado)}</td>
+      <td style="text-align:right">${fmtBRL(p.executadoAcum)}</td>
+    </tr>`).join('');
+  document.getElementById("view").innerHTML=`
+    <div class="pagehd"><div><h2>Cronograma / Curva S</h2><div class="sb">Evolução física-financeira — período de prorrogação</div></div></div>
+    <div class="panel" style="margin-bottom:16px"><h3>Curva S — previsto × executado (acumulado)</h3>
+      <div class="lgd"><span><span class="d" style="background:#9aa4b2"></span>Previsto (acum.)</span><span><span class="d" style="background:var(--azul2)"></span>Executado (acum.)</span></div>
+      ${svgCurva(curva)}
+      <div class="finfoot">
+        <div class="fb"><div class="l">Valor do contrato</div><div class="v">${fmtMi(f.valorContrato)}</div></div>
+        <div class="fb"><div class="l">Executado acumulado</div><div class="v" style="color:var(--azul2)">${fmtMi(f.valorExecutado)}</div></div>
+        <div class="fb"><div class="l">Saldo</div><div class="v" style="color:var(--verde)">${fmtMi(f.saldo)}</div></div>
+      </div></div>
+    <div class="panel"><h3>Medições (mais recente primeiro)</h3>
+      <table><thead><tr><th>Medição</th><th>Mês</th><th style="text-align:right">Previsto</th><th style="text-align:right">Executado</th><th style="text-align:right">Acumulado</th></tr></thead>
+      <tbody>${linhas||'<tr><td colspan="5" class="empty">Sem dados.</td></tr>'}</tbody></table></div>`;
+}
 
 /* ---------- persistência ---------- */
 function carregarMed(){ try{ medicoes = JSON.parse(localStorage.getItem(LS_KEY))||{}; }catch(e){ medicoes={}; }
@@ -260,28 +614,32 @@ function setCrumbs(parts){
 /* Home — aba Notas de Serviço */
 function viewHome(){
   atualNS=null;
-  setCrumbs([{t:"Notas de Serviço"}]);
+  setNav("notas","Notas de Serviço");
+  setCrumbs([{t:"Dashboard", go:"viewDashboard()"},{t:"Notas de Serviço"}]);
   const opts = [
-    {t:"Sinalização Vertical", ic:"🚦", d:manifest.length+" notas de serviço", go:"viewVertical()"},
-    {t:"Sinalização Horizontal", ic:"🛣️", d:"em breve", off:true},
-    {t:"Dispositivos de Segurança", ic:"🛡️", d:defManifest.length+" notas de serviço", go:"viewDefensas()"},
-    {t:"Projeto Executivo", ic:"📐", d:"em breve", off:true},
+    {t:"Sinalização Vertical", ic:"🚦", bg:"#e11d48", d:manifest.length+" notas de serviço", go:"viewVertical()"},
+    {t:"Sinalização Horizontal", ic:"🛣️", bg:"#16a34a", d:"em breve", off:true},
+    {t:"Dispositivos de Segurança", ic:"🛡️", bg:"#f59e0b", d:defManifest.length+" notas de serviço", go:"viewDefensas()"},
+    {t:"Projeto Executivo", ic:"📐", bg:"#7c3aed", d:"em breve", off:true},
   ];
   document.getElementById("view").innerHTML =
-    `<div class="toolbar" style="margin-bottom:14px">
+    `<div class="pagehd"><div><h2>Notas de Serviço</h2><div class="sb">Acompanhamento de medição por frente</div></div></div>
+     <div class="toolbar" style="margin-bottom:14px">
        <button class="btn pri" onclick="abrirImportGeral()">⬆ Registrar medição (planilha)</button>
        <span class="muted" style="font-size:13px">Anexe a planilha de medição uma vez — o painel lê as abas por frente e distribui.</span>
      </div>
      <div class="cards">`+opts.map(o=>
       `<div class="card ${o.off?'disabled':''}" ${o.off?'':`onclick="${o.go}"`}>
-        <div class="ic">${o.ic}</div><div class="t">${o.t}</div><div class="d">${o.d}</div></div>`
+        <div class="ic" style="background:${o.bg}">${o.ic}</div>
+        <div><div class="t">${o.t}</div><div class="d">${o.d}</div></div><span class="go">›</span></div>`
     ).join('')+`</div>`;
 }
 
 /* Lista de NS de sinalização vertical */
 function viewVertical(){
   atualNS=null;
-  setCrumbs([{t:"Notas de Serviço", go:"viewHome()"},{t:"Sinalização Vertical"}]);
+  setNav("vertical","Sinalização Vertical");
+  setCrumbs([{t:"Dashboard", go:"viewDashboard()"},{t:"Notas de Serviço", go:"viewHome()"},{t:"Sinalização Vertical"}]);
   const totPlacas = manifest.reduce((s,m)=>s+m.totalPlacas,0);
   const totMed = manifest.reduce((s,m)=>s+statNS(m.id).medidas,0);
   const v = document.getElementById("view");
@@ -327,7 +685,8 @@ function renderListaNS(){
 async function viewNS(id){
   atualNS=id; filtroMed="todas";
   const ns = await carregarNS(id);
-  setCrumbs([{t:"Notas de Serviço", go:"viewHome()"},{t:"Sinalização Vertical", go:"viewVertical()"},{t:nomeNS(ns)}]);
+  setNav("vertical","Sinalização Vertical");
+  setCrumbs([{t:"Dashboard", go:"viewDashboard()"},{t:"Sinalização Vertical", go:"viewVertical()"},{t:nomeNS(ns)}]);
   renderNS();
 }
 function medicoesUsadas(id){
@@ -771,7 +1130,8 @@ function medicoesUsadasDef(id){ return [...new Set(Object.values(defMedicoes[id]
 
 function viewDefensas(){
   defAtual=null;
-  setCrumbs([{t:"Notas de Serviço", go:"viewHome()"},{t:"Dispositivos de Segurança"}]);
+  setNav("dispositivos","Dispositivos de Segurança");
+  setCrumbs([{t:"Dashboard", go:"viewDashboard()"},{t:"Notas de Serviço", go:"viewHome()"},{t:"Dispositivos de Segurança"}]);
   const totT = defManifest.reduce((s,m)=>s+m.nItens,0);
   const totMed = defManifest.reduce((s,m)=>s+statDef(m.id).medidas,0);
   document.getElementById("view").innerHTML = `
@@ -805,7 +1165,8 @@ function renderListaDef(){
 async function viewDefNS(id){
   defAtual=id; defFiltro="todas";
   const ns=await carregarDefNS(id);
-  setCrumbs([{t:"Notas de Serviço", go:"viewHome()"},{t:"Dispositivos de Segurança", go:"viewDefensas()"},{t:ns.rodovia}]);
+  setNav("dispositivos","Dispositivos de Segurança");
+  setCrumbs([{t:"Dashboard", go:"viewDashboard()"},{t:"Dispositivos de Segurança", go:"viewDefensas()"},{t:ns.rodovia}]);
   renderDefNS();
 }
 function setFiltroDef(f){ defFiltro=f; renderDefNS(); }
@@ -885,9 +1246,11 @@ async function iniciar(){
   }
   // defensas é opcional: se falhar, o painel abre mesmo assim (só vertical)
   try{ await comRetry(carregarDefManifest, 2); }catch(e){ defManifest=[]; }
+  // dados do contrato (financeiro/curva S): opcional, o painel abre sem eles
+  try{ await comRetry(carregarContrato, 2); }catch(e){ contrato=null; }
   // nuvem: se já tem senha guardada na sessão, tenta entrar direto; senão, login
   if(senhaNuvem){
-    try{ await nuvemCarregar(); viewHome(); return; }
+    try{ await nuvemCarregar(); document.body.classList.add("app-ready"); renderNav(); viewDashboard(); return; }
     catch(e){ senhaNuvem=""; sessionStorage.removeItem("proseg_senha"); }
   }
   viewLogin();
