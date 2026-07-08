@@ -166,6 +166,9 @@
   .stat .l{font-size:11px;color:var(--cinza);text-transform:uppercase;letter-spacing:.03em}
   .hint{background:#eaf4ff;border:1px solid #cfe3fb;color:#0b4f8a;padding:10px 12px;border-radius:8px;font-size:13px;margin-bottom:12px}
   dialog{border:none;border-radius:14px;padding:0;max-width:520px;width:92%;box-shadow:0 20px 60px rgba(0,0,0,.3)}
+  #dlgNota{max-width:900px}
+  #dlgNota #notaLinhas th{position:static;background:var(--cinzaClaro)}
+  #dlgNota #notaLinhas td,#dlgNota #notaLinhas th{padding:5px 6px}
   dialog::backdrop{background:rgba(0,0,0,.4)}
   .dlg-h{padding:16px 18px;border-bottom:1px solid var(--borda);font-weight:600;display:flex;align-items:center}
   .dlg-h .x{margin-left:auto;cursor:pointer;color:var(--cinza);font-size:20px;line-height:1}
@@ -241,6 +244,30 @@
   </div>
 </dialog>
 
+<dialog id="dlgNota">
+  <div class="dlg-h"><span id="dlgNotaTitulo">Cadastrar NS manual</span> <span class="x" onclick="dlgNota.close()">×</span></div>
+  <div class="dlg-b">
+    <p class="muted" style="margin-top:0;font-size:13px">Para NS emitidas em Word/PDF (fora do padrão das planilhas). Preencha os campos e salve — a NS fica guardada na nuvem e recebe medição como as demais.</p>
+    <div style="display:flex;gap:10px;flex-wrap:wrap">
+      <div style="flex:1;min-width:150px"><label>Frente</label>
+        <select id="notaFrente" onchange="notaSetFrente()" style="width:100%;padding:8px;border:1px solid var(--borda);border-radius:8px;font-size:14px">
+          <option value="defensa">Dispositivos (Defensa)</option>
+          <option value="vertical">Sinalização Vertical</option>
+          <option value="horizontal">Sinalização Horizontal</option>
+        </select></div>
+      <div style="flex:1;min-width:110px"><label>Rodovia</label><input id="notaRod" placeholder="PR-090" style="width:100%;padding:8px;border:1px solid var(--borda);border-radius:8px;font-size:14px"></div>
+      <div style="flex:1;min-width:110px"><label>Data da NS</label><input id="notaData" placeholder="22.05.26" style="width:100%;padding:8px;border:1px solid var(--borda);border-radius:8px;font-size:14px"></div>
+    </div>
+    <label style="margin-top:12px">Itens</label>
+    <div style="overflow-x:auto;border:1px solid var(--borda);border-radius:8px"><table id="notaLinhas" style="font-size:12px;border:none;border-radius:0"></table></div>
+    <button class="btn" onclick="notaAddLinha()" style="margin-top:8px">+ Adicionar linha</button>
+  </div>
+  <div class="dlg-f">
+    <button class="btn" onclick="dlgNota.close()">Cancelar</button>
+    <button class="btn pri" onclick="salvarNota()">Salvar NS</button>
+  </div>
+</dialog>
+
 <div id="lightbox" onclick="this.style.display='none'"><img id="lightboxImg" src="" alt=""></div>
 <div id="toast"></div>
 
@@ -272,6 +299,51 @@ let defFiltro = "todas";
 function carregarDefMed(){ try{ defMedicoes = JSON.parse(localStorage.getItem(LS_DEF))||{}; }catch(e){ defMedicoes={}; } }
 function salvarDefMed(){ localStorage.setItem(LS_DEF, JSON.stringify(defMedicoes)); }
 
+/* ===== HORIZONTAL (por enquanto só NS manuais) ===== */
+const LS_HORIZ = "proseg_painel_horizontal_medicoes_v1";
+let horizManifest = [];     // lista de NS horizontais
+let horizCache = {};        // id -> objeto carregado
+let horizMedicoes = {};     // id -> { idxItem -> numMedicao }
+let horizAtual = null;      // id da NS horizontal aberta
+let horizFiltro = "todas";
+function carregarHorizMed(){ try{ horizMedicoes = JSON.parse(localStorage.getItem(LS_HORIZ))||{}; }catch(e){ horizMedicoes={}; } }
+function salvarHorizMed(){ localStorage.setItem(LS_HORIZ, JSON.stringify(horizMedicoes)); }
+
+/* ===== NS MANUAIS (definição guardada na nuvem, linha frente="__nota__") ===== */
+let manualDefs = {};        // idManual -> { frente, rodovia, dataNS, itens:[...] }
+/* registra/atualiza uma NS manual nos manifests/caches da frente correspondente */
+function registrarNotaManual(id, def){
+  manualDefs[id]=def;
+  const rodovia=def.rodovia||"", dataNS=def.dataNS||"", itens=def.itens||[];
+  if(def.frente==="vertical"){
+    nsCache[id]={_id:id, rodovia, trecho:"", dataNS, manual:true,
+      placas: itens.map((it,i)=>({codigo:it.codigo||"", km:it.km||"", tipo:it.tipo||"", qtde_un:(it.qtde_un!=null?it.qtde_un:""), _ordem:i}))};
+    manifest = manifest.filter(m=>m.id!==id);
+    manifest.push({id, rodovia, trecho:"", dataNS, totalPlacas:itens.length, manual:true});
+  } else if(def.frente==="defensa"){
+    defCache[id]={_id:id, rodovia, manual:true, itens};
+    defManifest = defManifest.filter(m=>m.id!==id);
+    defManifest.push({id, rodovia, nItens:itens.length, manual:true});
+  } else if(def.frente==="horizontal"){
+    horizCache[id]={_id:id, rodovia, manual:true, itens};
+    horizManifest = horizManifest.filter(m=>m.id!==id);
+    horizManifest.push({id, rodovia, nItens:itens.length, manual:true});
+  }
+}
+/* remove uma NS manual dos manifests/caches locais */
+function removerNotaManualLocal(id){
+  const def=manualDefs[id]; delete manualDefs[id];
+  if(!def) return;
+  if(def.frente==="vertical"){ delete nsCache[id]; manifest=manifest.filter(m=>m.id!==id); }
+  else if(def.frente==="defensa"){ delete defCache[id]; defManifest=defManifest.filter(m=>m.id!==id); }
+  else if(def.frente==="horizontal"){ delete horizCache[id]; horizManifest=horizManifest.filter(m=>m.id!==id); }
+}
+/* limpa todas as NS manuais dos manifests (antes de recarregar da nuvem) */
+function limparNotasManuais(){
+  Object.keys(manualDefs).forEach(id=>removerNotaManualLocal(id));
+  manualDefs={};
+}
+
 /* ===== NUVEM (Planilha Google via Apps Script) ===== */
 const PONTE = "https://script.google.com/macros/s/AKfycbyKAtmbz5-zwSW1sRchhbwBGEk05gT3Q993nuLU-7RTjccc_gl74pbaSxVhCNZpdbtO/exec";
 let senhaNuvem = sessionStorage.getItem("proseg_senha") || "";
@@ -287,17 +359,34 @@ async function nuvemCarregar(){
   const r = await fetch(PONTE + "?senha=" + encodeURIComponent(senhaNuvem));
   const j = await r.json();
   if(j.erro) throw new Error(j.erro);
-  medicoes={}; observacoes={}; defMedicoes={};
-  (j.dados||[]).forEach(function(d){
+  medicoes={}; observacoes={}; defMedicoes={}; horizMedicoes={};
+  const linhas = j.dados||[];
+  // 1ª passada: NS manuais (definição no obs) — registra antes das medições
+  limparNotasManuais();
+  linhas.forEach(function(d){
+    if(d.frente==="__nota__" && d.obs!==""&&d.obs!=null){
+      try{ const def=JSON.parse(d.obs); if(def&&def.frente) registrarNotaManual(String(d.ns), def); }catch(e){}
+    }
+  });
+  ordenarManifests();
+  // 2ª passada: medições/observações
+  linhas.forEach(function(d){
     const item=String(d.item);
     if(d.frente==="vertical"){
       if(d.medicao!==""&&d.medicao!=null){ (medicoes[d.ns]=medicoes[d.ns]||{})[item]=Number(d.medicao); }
       if(d.obs!==""&&d.obs!=null){ (observacoes[d.ns]=observacoes[d.ns]||{})[item]=String(d.obs); }
     } else if(d.frente==="defensa"){
       if(d.medicao!==""&&d.medicao!=null){ (defMedicoes[d.ns]=defMedicoes[d.ns]||{})[item]=Number(d.medicao); }
+    } else if(d.frente==="horizontal"){
+      if(d.medicao!==""&&d.medicao!=null){ (horizMedicoes[d.ns]=horizMedicoes[d.ns]||{})[item]=Number(d.medicao); }
     }
   });
-  salvarMed(); salvarObs(); salvarDefMed();
+  salvarMed(); salvarObs(); salvarDefMed(); salvarHorizMed();
+}
+function ordenarManifests(){
+  manifest.sort((a,b)=> (a.rodovia+(a.trecho||"")).localeCompare(b.rodovia+(b.trecho||""),'pt'));
+  defManifest.sort((a,b)=> a.rodovia.localeCompare(b.rodovia,'pt'));
+  horizManifest.sort((a,b)=> a.rodovia.localeCompare(b.rodovia,'pt'));
 }
 /* tela de login */
 function viewLogin(msg){
@@ -622,15 +711,16 @@ function viewHome(){
   setCrumbs([{t:"Dashboard", go:"viewDashboard()"},{t:"Notas de Serviço"}]);
   const opts = [
     {t:"Sinalização Vertical", ic:"🚦", bg:"#e11d48", d:manifest.length+" notas de serviço", go:"viewVertical()"},
-    {t:"Sinalização Horizontal", ic:"🛣️", bg:"#16a34a", d:"em breve", off:true},
+    {t:"Sinalização Horizontal", ic:"🛣️", bg:"#16a34a", d:horizManifest.length+" notas de serviço", go:"viewHorizontal()"},
     {t:"Dispositivos de Segurança", ic:"🛡️", bg:"#f59e0b", d:defManifest.length+" notas de serviço", go:"viewDefensas()"},
     {t:"Projeto Executivo", ic:"📐", bg:"#7c3aed", d:"em breve", off:true},
   ];
   document.getElementById("view").innerHTML =
-    `<div class="pagehd"><div><h2>Notas de Serviço</h2><div class="sb">Acompanhamento de medição por frente</div></div></div>
+    `<div class="pagehd"><div><h2>Notas de Serviço</h2><div class="sb">Acompanhamento de medição por frente</div></div>
+       <div style="margin-left:auto"><button class="btn pri" onclick="abrirNota('defensa')">+ Cadastrar NS manual</button></div></div>
      <div class="toolbar" style="margin-bottom:14px">
-       <button class="btn pri" onclick="abrirImportGeral()">⬆ Registrar medição (planilha)</button>
-       <span class="muted" style="font-size:13px">Anexe a planilha de medição uma vez — o painel lê as abas por frente e distribui.</span>
+       <button class="btn" onclick="abrirImportGeral()">⬆ Registrar medição (planilha)</button>
+       <span class="muted" style="font-size:13px">Planilha para dar baixa em lote · ou <b>+ Cadastrar NS manual</b> para NS em Word/PDF.</span>
      </div>
      <div class="cards">`+opts.map(o=>
       `<div class="card ${o.off?'disabled':''}" ${o.off?'':`onclick="${o.go}"`}>
@@ -677,7 +767,7 @@ function renderListaNS(){
         <span style="white-space:nowrap"><b>${s.total}/${s.medidas}</b> <span style="color:${corPct};font-weight:600">(${s.pct}%)</span></span>
       </div>`;
     return `<tr class="nsrow" onclick="viewNS('${m.id}')">
-      <td><b>${esc(m.rodovia)}</b>${antigo?' <span class="badge b-amarelo" title="NS antiga ainda em aberto">antiga</span>':''}</td>
+      <td><b>${esc(m.rodovia)}</b>${antigo?' <span class="badge b-amarelo" title="NS antiga ainda em aberto">antiga</span>':''}${m.manual?' <span class="badge b-azul" title="Cadastrada manualmente">manual</span>':''}</td>
       <td class="muted">${m.dataNS?esc(m.dataNS):'—'}</td>
       <td style="text-align:right">${m.totalPlacas}</td>
       <td>${andam}</td>
@@ -719,6 +809,7 @@ function renderNS(){
       <button class="btn" onclick="exportarExcel()">⬇ Exportar planilha (Excel)</button>
       <button class="btn" onclick="exportarPend()">⬇ Exportar pendentes (CSV)</button>
       <div style="flex:1"></div>
+      ${ns.manual?`<button class="btn" onclick="editarNota('${atualNS}')">✎ Editar NS</button><button class="btn" onclick="excluirNota('${atualNS}')">🗑 Excluir</button>`:''}
     </div>
     <div class="toolbar">${pills.join('')}</div>
     <table>
@@ -1163,7 +1254,7 @@ function renderListaDef(){
     const s=statDef(m.id);
     const cor = s.pct===100?'var(--verde)':(s.medidas===0?'var(--cinza)':'var(--azul)');
     const andam=`<div style="display:flex;align-items:center;gap:8px;min-width:160px"><div class="prog" style="flex:1"><i style="width:${s.pct}%"></i></div><span style="white-space:nowrap"><b>${s.total}/${s.medidas}</b> <span style="color:${cor};font-weight:600">(${s.pct}%)</span></span></div>`;
-    return `<tr class="nsrow" onclick="viewDefNS('${m.id}')"><td><b>${esc(m.rodovia)}</b></td><td style="text-align:right">${m.nItens}</td><td>${andam}</td></tr>`;
+    return `<tr class="nsrow" onclick="viewDefNS('${m.id}')"><td><b>${esc(m.rodovia)}</b>${m.manual?' <span class="badge b-azul" title="Cadastrada manualmente">manual</span>':''}</td><td style="text-align:right">${m.nItens}</td><td>${andam}</td></tr>`;
   }).join('');
 }
 async function viewDefNS(id){
@@ -1180,11 +1271,13 @@ function renderDefNS(){
   const pills=[`<span class="pill ${defFiltro==='todas'?'on':''}" onclick="setFiltroDef('todas')">Todos (${ns.itens.length})</span>`,
     `<span class="pill ${defFiltro==='pendentes'?'on':''}" onclick="setFiltroDef('pendentes')">Pendentes (${s.total-s.medidas})</span>`]
     .concat(usadas.map(n=>`<span class="pill ${String(defFiltro)===String(n)?'on':''}" onclick="setFiltroDef(${n})">Medição ${n}</span>`));
+  const acoes = ns.manual? `<div style="margin-left:auto;display:flex;gap:8px;align-self:center"><button class="btn" onclick="editarNota('${defAtual}')">✎ Editar NS</button><button class="btn" onclick="excluirNota('${defAtual}')">🗑 Excluir</button></div>`:'';
   document.getElementById("view").innerHTML=`
     <div class="stat">
-      <div><div class="n">${esc(ns.rodovia)}</div><div class="l">Defensas metálicas</div></div>
+      <div><div class="n">${esc(ns.rodovia)} ${ns.manual?'<span class="badge b-azul" style="vertical-align:middle">manual</span>':''}</div><div class="l">Defensas metálicas</div></div>
       <div><div class="n">${s.total}/${s.medidas} <span style="font-size:16px;color:${s.pct===100?'var(--verde)':'var(--azul)'}">(${s.pct}%)</span></div><div class="l">Tramos / medidos — andamento</div></div>
       <div style="align-self:center;min-width:160px"><div class="prog"><i style="width:${s.pct}%"></i></div><div class="l" style="margin-top:4px">${s.medidas} medido(s) · ${s.total-s.medidas} pendente(s)</div></div>
+      ${acoes}
     </div>
     <div class="hint">Cada linha é um <b>tramo</b> de defensa. Registre a medição importando a aba <b>DISP. SEGURANÇA</b> da sua planilha, ou digitando o número na coluna <b>Medição</b>.</div>
     <div class="toolbar">${pills.join('')}</div>
@@ -1232,6 +1325,179 @@ function setMedicaoDef(idx, val){
 }
 function abrirImportDef(){ toast("Importação de defensas: em construção — por enquanto, digite a medição por tramo."); }
 
+/* ================= SINALIZAÇÃO HORIZONTAL (NS manuais) ================= */
+function statHoriz(id, ns){
+  const med = horizMedicoes[id]||{};
+  const total = ns ? ns.itens.length : (horizManifest.find(m=>m.id===id)?.nItens||0);
+  const medidas = Object.keys(med).length;
+  return { total, medidas, pct: total? Math.round(medidas/total*100):0 };
+}
+function medicoesUsadasHoriz(id){ return [...new Set(Object.values(horizMedicoes[id]||{}).map(Number))].sort((a,b)=>a-b); }
+function viewHorizontal(){
+  horizAtual=null;
+  setNav("notas","Sinalização Horizontal");
+  setCrumbs([{t:"Dashboard", go:"viewDashboard()"},{t:"Notas de Serviço", go:"viewHome()"},{t:"Sinalização Horizontal"}]);
+  const totI = horizManifest.reduce((s,m)=>s+(m.nItens||0),0);
+  const totMed = horizManifest.reduce((s,m)=>s+statHoriz(m.id).medidas,0);
+  document.getElementById("view").innerHTML = `
+    <div class="pagehd"><div><h2>Sinalização Horizontal</h2><div class="sb">Notas de serviço cadastradas manualmente</div></div>
+      <div style="margin-left:auto"><button class="btn pri" onclick="abrirNota('horizontal')">+ Cadastrar NS manual</button></div></div>
+    <div class="stat">
+      <div><div class="n">${horizManifest.length}</div><div class="l">Notas de serviço</div></div>
+      <div><div class="n">${totI}</div><div class="l">Itens</div></div>
+      <div><div class="n">${totMed}</div><div class="l">Medidos</div></div>
+      <div><div class="n">${totI-totMed}</div><div class="l">Pendentes</div></div>
+    </div>
+    ${horizManifest.length? `<div class="toolbar"><input class="busca" id="buscaHoriz" placeholder="Buscar rodovia…" oninput="renderListaHoriz()"></div>
+    <table><thead><tr><th>Rodovia</th><th style="text-align:right">Itens</th><th>Andamento</th></tr></thead><tbody id="tbHoriz"></tbody></table>`
+    : `<div class="empty">Nenhuma NS horizontal ainda.<br>Use <b>+ Cadastrar NS manual</b> para adicionar.</div>`}`;
+  if(horizManifest.length) renderListaHoriz();
+}
+function renderListaHoriz(){
+  const q=(document.getElementById("buscaHoriz")?.value||"").toLowerCase().trim();
+  const tb=document.getElementById("tbHoriz");
+  const list=horizManifest.filter(m=> !q || m.rodovia.toLowerCase().includes(q));
+  if(!list.length){ tb.innerHTML=`<tr><td colspan="3" class="empty">Nenhuma rodovia.</td></tr>`; return; }
+  tb.innerHTML=list.map(m=>{
+    const s=statHoriz(m.id);
+    const cor=s.pct===100?'var(--verde)':(s.medidas===0?'var(--cinza)':'var(--azul)');
+    const andam=`<div style="display:flex;align-items:center;gap:8px;min-width:160px"><div class="prog" style="flex:1"><i style="width:${s.pct}%"></i></div><span style="white-space:nowrap"><b>${s.total}/${s.medidas}</b> <span style="color:${cor};font-weight:600">(${s.pct}%)</span></span></div>`;
+    return `<tr class="nsrow" onclick="viewHorizNS('${m.id}')"><td><b>${esc(m.rodovia)}</b>${m.manual?' <span class="badge b-azul" title="Cadastrada manualmente">manual</span>':''}</td><td style="text-align:right">${m.nItens}</td><td>${andam}</td></tr>`;
+  }).join('');
+}
+function viewHorizNS(id){
+  horizAtual=id; horizFiltro="todas";
+  setNav("notas","Sinalização Horizontal");
+  const ns=horizCache[id];
+  setCrumbs([{t:"Dashboard", go:"viewDashboard()"},{t:"Sinalização Horizontal", go:"viewHorizontal()"},{t:ns.rodovia}]);
+  renderHorizNS();
+}
+function setFiltroHoriz(f){ horizFiltro=f; renderHorizNS(); }
+function renderHorizNS(){
+  const ns=horizCache[horizAtual]; const s=statHoriz(horizAtual,ns);
+  const usadas=medicoesUsadasHoriz(horizAtual);
+  const pills=[`<span class="pill ${horizFiltro==='todas'?'on':''}" onclick="setFiltroHoriz('todas')">Todos (${ns.itens.length})</span>`,
+    `<span class="pill ${horizFiltro==='pendentes'?'on':''}" onclick="setFiltroHoriz('pendentes')">Pendentes (${s.total-s.medidas})</span>`]
+    .concat(usadas.map(n=>`<span class="pill ${String(horizFiltro)===String(n)?'on':''}" onclick="setFiltroHoriz(${n})">Medição ${n}</span>`));
+  const acoes = ns.manual? `<div style="margin-left:auto;display:flex;gap:8px"><button class="btn" onclick="editarNota('${horizAtual}')">✎ Editar</button><button class="btn" onclick="excluirNota('${horizAtual}')">🗑 Excluir</button></div>`:'';
+  document.getElementById("view").innerHTML=`
+    <div class="pagehd"><div><h2>${esc(ns.rodovia)} ${ns.manual?'<span class="badge b-azul">manual</span>':''}</h2><div class="sb">Sinalização horizontal · ${s.total}/${s.medidas} (${s.pct}%)</div></div>${acoes}</div>
+    <div class="toolbar">${pills.join('')}</div>
+    <table><thead><tr><th style="width:44px">#</th><th>Descrição / serviço</th><th>km (início → fim)</th><th>Material</th><th style="text-align:right">Área/ext.</th><th style="width:110px">Medição</th></tr></thead>
+    <tbody id="tbHz"></tbody></table>`;
+  renderHorizItens();
+}
+function renderHorizItens(){
+  const ns=horizCache[horizAtual]; const med=horizMedicoes[horizAtual]||{};
+  const tb=document.getElementById("tbHz");
+  const rows=ns.itens.map((it,i)=>({it,i})).filter(({i})=>{
+    const m=med[i];
+    if(horizFiltro==='todas') return true;
+    if(horizFiltro==='pendentes') return m==null;
+    return String(m)===String(horizFiltro);
+  });
+  if(!rows.length){ tb.innerHTML=`<tr><td colspan="6" class="empty">Nenhum item neste filtro.</td></tr>`; return; }
+  tb.innerHTML=rows.map(({it,i})=>{
+    const m=med[i];
+    const km=`${esc(it.kmIniFmt||'—')} → ${esc(it.kmFimFmt||'—')}`;
+    const medCel=`<input class="med-inp" type="number" min="1" value="${m??''}" placeholder="—" onchange="setMedicaoHoriz(${i}, this.value)">`;
+    return `<tr><td class="muted">${i+1}</td><td><b>${esc(it.desc||'—')}</b></td><td>${km}</td><td>${esc(it.mat||'—')}</td><td style="text-align:right">${esc(it.area||'—')}</td><td>${medCel}</td></tr>`;
+  }).join('');
+}
+function setMedicaoHoriz(idx, val){
+  if(!horizMedicoes[horizAtual]) horizMedicoes[horizAtual]={};
+  val=String(val).trim();
+  var vazio=(val===""||Number(val)<=0);
+  if(vazio) delete horizMedicoes[horizAtual][idx]; else horizMedicoes[horizAtual][idx]=Number(val);
+  salvarHorizMed();
+  nuvemEnviar([{frente:"horizontal", ns:horizAtual, item:idx, medicao: vazio? "" : Number(val)}]);
+  renderHorizNS();
+}
+
+/* ================= FORMULÁRIO DE NS MANUAL ================= */
+const CAMPOS_NOTA = {
+  vertical: { cols:[
+    {k:"codigo", t:"Código", ph:"ex.: R-1"},
+    {k:"km", t:"km", ph:"31+700"},
+    {k:"tipo", t:"Suporte", ph:"Solo h=3,5m"},
+    {k:"qtde_un", t:"Qtde", ph:"1", w:56},
+  ]},
+  defensa: { cols:[
+    {k:"tramo", t:"Tramo", ph:"1", w:64},
+    {k:"kmIni", t:"km início", ph:"31+700", w:88},
+    {k:"kmFim", t:"km fim", ph:"31+760", w:88},
+    {k:"lado", t:"Lado", ph:"Dir/Esq", w:74},
+    {k:"comprimento", t:"Compr.(m)", ph:"60", w:74},
+    {k:"modelo", t:"Modelo", ph:"MSKT"},
+    {k:"termEntrada", t:"Term. entr.", ph:"—", w:88},
+    {k:"termSaida", t:"Term. saída", ph:"—", w:88},
+  ]},
+  horizontal: { cols:[
+    {k:"desc", t:"Descrição / serviço", ph:"Faixa contínua"},
+    {k:"kmIniFmt", t:"km início", ph:"10+438", w:88},
+    {k:"kmFimFmt", t:"km fim", ph:"10+520", w:88},
+    {k:"mat", t:"Material", ph:"Termoplástico"},
+    {k:"area", t:"Área/ext.", ph:"13,26", w:80},
+  ]},
+};
+let notaFrente="defensa", notaEditId=null, notaLinhas=[];
+function abrirNota(frente, editId){
+  notaEditId = editId||null;
+  if(notaEditId && manualDefs[notaEditId]){ const d=manualDefs[notaEditId]; notaFrente=d.frente; notaLinhas=(d.itens||[]).map(it=>Object.assign({},it));
+    document.getElementById("notaRod").value=d.rodovia||""; document.getElementById("notaData").value=d.dataNS||""; }
+  else { notaFrente=frente||"defensa"; notaLinhas=[{}]; document.getElementById("notaRod").value=""; document.getElementById("notaData").value=""; }
+  const sel=document.getElementById("notaFrente"); sel.value=notaFrente; sel.disabled=!!notaEditId;
+  document.getElementById("dlgNotaTitulo").textContent = notaEditId? "Editar NS manual" : "Cadastrar NS manual";
+  renderNotaForm();
+  document.getElementById("dlgNota").showModal();
+}
+function notaSetFrente(){ notaFrente=document.getElementById("notaFrente").value; if(!notaEditId){ notaLinhas=[{}]; } renderNotaForm(); }
+function notaAddLinha(){ notaLeituraLinhas(); notaLinhas.push({}); renderNotaForm(); }
+function notaRemLinha(i){ notaLeituraLinhas(); notaLinhas.splice(i,1); if(!notaLinhas.length) notaLinhas=[{}]; renderNotaForm(); }
+function notaLeituraLinhas(){
+  const cols=CAMPOS_NOTA[notaFrente].cols;
+  document.querySelectorAll('#notaLinhas tr[data-i]').forEach(tr=>{
+    const i=+tr.getAttribute('data-i');
+    cols.forEach(c=>{ const inp=tr.querySelector(`[data-k="${c.k}"]`); if(inp) notaLinhas[i][c.k]=inp.value; });
+  });
+}
+function renderNotaForm(){
+  const cfg=CAMPOS_NOTA[notaFrente];
+  const head=`<tr><th style="width:24px">#</th>`+cfg.cols.map(c=>`<th>${esc(c.t)}</th>`).join('')+`<th style="width:24px"></th></tr>`;
+  const body=notaLinhas.map((ln,i)=>`<tr data-i="${i}"><td class="muted">${i+1}</td>`+
+    cfg.cols.map(c=>`<td><input data-k="${c.k}" value="${esc(ln[c.k]!=null?ln[c.k]:'')}" placeholder="${esc(c.ph||'')}" style="width:${c.w?c.w+'px':'100%'};min-width:56px;padding:5px 7px;border:1px solid var(--borda);border-radius:6px;font-size:12px"></td>`).join('')+
+    `<td><span onclick="notaRemLinha(${i})" title="Remover linha" style="cursor:pointer;color:var(--vermelho)">✕</span></td></tr>`).join('');
+  document.getElementById("notaLinhas").innerHTML=`<thead>${head}</thead><tbody>${body}</tbody>`;
+}
+function salvarNota(){
+  notaLeituraLinhas();
+  const rodovia=(document.getElementById("notaRod").value||"").trim();
+  const dataNS=(document.getElementById("notaData").value||"").trim();
+  if(!rodovia){ toast("Informe a rodovia"); return; }
+  const cols=CAMPOS_NOTA[notaFrente].cols;
+  const itens=notaLinhas.map(ln=>{ const o={}; cols.forEach(c=>{ o[c.k]=(ln[c.k]!=null?String(ln[c.k]).trim():""); }); return o; })
+    .filter(o=> cols.some(c=> o[c.k]!==""));
+  if(!itens.length){ toast("Adicione ao menos um item preenchido"); return; }
+  const id = notaEditId || ("man_"+notaFrente+"_"+Date.now());
+  const def={ frente:notaFrente, rodovia, dataNS, itens };
+  registrarNotaManual(id, def);
+  ordenarManifests();
+  nuvemEnviar([{frente:"__nota__", ns:id, item:"meta", obs: JSON.stringify(def)}]);
+  document.getElementById("dlgNota").close();
+  toast(notaEditId? "NS manual atualizada" : "NS manual cadastrada");
+  if(notaFrente==="vertical") viewVertical(); else if(notaFrente==="defensa") viewDefensas(); else viewHorizontal();
+}
+function editarNota(id){ abrirNota(null, id); }
+function excluirNota(id){
+  if(!confirm("Excluir esta NS manual? As medições lançadas nela deixam de aparecer.")) return;
+  const def=manualDefs[id]; const frente=def?def.frente:null;
+  nuvemEnviar([{frente:"__nota__", ns:id, item:"meta", obs: ""}]);
+  removerNotaManualLocal(id);
+  try{ document.getElementById("dlgNota").close(); }catch(e){}
+  toast("NS manual excluída");
+  if(frente==="vertical") viewVertical(); else if(frente==="defensa") viewDefensas(); else if(frente==="horizontal") viewHorizontal(); else viewHome();
+}
+
 /* ---------- boot ---------- */
 async function comRetry(fn, tentativas){
   let ultimo;
@@ -1242,7 +1508,7 @@ async function comRetry(fn, tentativas){
 }
 async function iniciar(){
   document.getElementById("view").innerHTML=`<div class="empty">Carregando…</div>`;
-  carregarMed(); carregarDefMed();
+  carregarMed(); carregarDefMed(); carregarHorizMed();
   try{ await comRetry(carregarManifest); }
   catch(e){
     document.getElementById("view").innerHTML=`<div class="empty">Não consegui carregar os dados agora.<br><span class="muted">O servidor do preview pode estar reiniciando.</span><br><br><button class="btn pri" onclick="iniciar()">↻ Tentar de novo</button></div>`;
