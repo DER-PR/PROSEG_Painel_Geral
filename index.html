@@ -341,11 +341,15 @@ const NAV = [
     {id:"financeiro", t:"Financeiro", ic:"💰", go:"viewFinanceiro()"},
     {id:"cronograma", t:"Cronograma", ic:"📈", go:"viewCronograma()"},
   ]},
-  {grp:"Sinalização", itens:[
-    {id:"vertical", t:"Sinalização Vertical", ic:"🚦", go:"viewVertical()"},
-    {id:"horizontal", t:"Sinalização Horizontal", ic:"🛣️", soon:true},
-    {id:"dispositivos", t:"Dispositivos", ic:"🛡️", go:"viewDefensas()"},
-    {id:"retro", t:"Retrorrefletância", ic:"🔦", soon:true},
+  {grp:"Ensaios", itens:[
+    {id:"retro_h", t:"Retrorrefletância Horizontal", ic:"🔦", soon:true},
+    {id:"retro_v", t:"Retrorrefletância Vertical", ic:"🔦", soon:true},
+  ]},
+  {grp:"Levantamentos", itens:[
+    {id:"lev_v", t:"Vertical", ic:"🚦", soon:true},
+    {id:"lev_h", t:"Horizontal", ic:"🛣️", soon:true},
+    {id:"lev_d", t:"Disp. Segurança", ic:"🛡️", soon:true},
+    {id:"lev_t", t:"Tachas", ic:"🔵", soon:true},
   ]},
   {grp:"Documentos e arquivos", itens:[
     {id:"fotos", t:"Fotos", ic:"📷", soon:true},
@@ -638,7 +642,7 @@ function viewHome(){
 /* Lista de NS de sinalização vertical */
 function viewVertical(){
   atualNS=null;
-  setNav("vertical","Sinalização Vertical");
+  setNav("notas","Sinalização Vertical");
   setCrumbs([{t:"Dashboard", go:"viewDashboard()"},{t:"Notas de Serviço", go:"viewHome()"},{t:"Sinalização Vertical"}]);
   const totPlacas = manifest.reduce((s,m)=>s+m.totalPlacas,0);
   const totMed = manifest.reduce((s,m)=>s+statNS(m.id).medidas,0);
@@ -685,7 +689,7 @@ function renderListaNS(){
 async function viewNS(id){
   atualNS=id; filtroMed="todas";
   const ns = await carregarNS(id);
-  setNav("vertical","Sinalização Vertical");
+  setNav("notas","Sinalização Vertical");
   setCrumbs([{t:"Dashboard", go:"viewDashboard()"},{t:"Sinalização Vertical", go:"viewVertical()"},{t:nomeNS(ns)}]);
   renderNS();
 }
@@ -1130,7 +1134,7 @@ function medicoesUsadasDef(id){ return [...new Set(Object.values(defMedicoes[id]
 
 function viewDefensas(){
   defAtual=null;
-  setNav("dispositivos","Dispositivos de Segurança");
+  setNav("notas","Dispositivos de Segurança");
   setCrumbs([{t:"Dashboard", go:"viewDashboard()"},{t:"Notas de Serviço", go:"viewHome()"},{t:"Dispositivos de Segurança"}]);
   const totT = defManifest.reduce((s,m)=>s+m.nItens,0);
   const totMed = defManifest.reduce((s,m)=>s+statDef(m.id).medidas,0);
@@ -1165,7 +1169,7 @@ function renderListaDef(){
 async function viewDefNS(id){
   defAtual=id; defFiltro="todas";
   const ns=await carregarDefNS(id);
-  setNav("dispositivos","Dispositivos de Segurança");
+  setNav("notas","Dispositivos de Segurança");
   setCrumbs([{t:"Dashboard", go:"viewDashboard()"},{t:"Dispositivos de Segurança", go:"viewDefensas()"},{t:ns.rodovia}]);
   renderDefNS();
 }
