@@ -940,7 +940,7 @@
         "trecho":  null,
         "dataNS":  "30.01.26",
         "arquivo":  "pr_506_novo.json",
-        "totalPlacas":  415,
+        "totalPlacas":  387,
         "colunas":  [
                         "Placa",
                         "Código",
@@ -951,7 +951,6 @@
                         "Eixo",
                         "Tipo",
                         "Qtde (un.)",
-                        "Tipo de Substrato",
                         "Tipo de Película",
                         "Largura",
                         "Altura",
