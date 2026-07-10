@@ -829,7 +829,7 @@ function renderNS(){
   const v = document.getElementById("view");
   const pills = [`<span class="pill ${filtroMed==='todas'?'on':''}" onclick="setFiltro('todas')">Todas (${ns.placas.length})</span>`,
     `<span class="pill ${filtroMed==='pendentes'?'on':''}" onclick="setFiltro('pendentes')">Pendentes (${s.total-s.medidas})</span>`]
-    .concat(usadas.map(n=>`<span class="pill ${String(filtroMed)===String(n)?'on':''}" onclick="setFiltro(${n})">Medição ${n}</span>`));
+    .concat(usadas.map(n=>{const cnt=Object.values(med).filter(v=>String(v)===String(n)).length; return `<span class="pill ${String(filtroMed)===String(n)?'on':''}" onclick="setFiltro(${n})">Medição ${n} (${cnt})</span>`;}));
   v.innerHTML = `
     <div class="stat">
       <div><div class="n">${nomeNS(ns)}</div><div class="l">${labelData(ns)} · ${ns.rodovia}</div></div>
@@ -1303,7 +1303,7 @@ function renderDefNS(){
   const usadas=medicoesUsadasDef(defAtual);
   const pills=[`<span class="pill ${defFiltro==='todas'?'on':''}" onclick="setFiltroDef('todas')">Todos (${ns.itens.length})</span>`,
     `<span class="pill ${defFiltro==='pendentes'?'on':''}" onclick="setFiltroDef('pendentes')">Pendentes (${s.total-s.medidas})</span>`]
-    .concat(usadas.map(n=>`<span class="pill ${String(defFiltro)===String(n)?'on':''}" onclick="setFiltroDef(${n})">Medição ${n}</span>`));
+    .concat(usadas.map(n=>{const cnt=Object.values(defMedicoes[defAtual]||{}).filter(v=>String(v)===String(n)).length; return `<span class="pill ${String(defFiltro)===String(n)?'on':''}" onclick="setFiltroDef(${n})">Medição ${n} (${cnt})</span>`;}));
   const acoes = ns.manual? `<div style="margin-left:auto;display:flex;gap:8px;align-self:center"><button class="btn" onclick="editarNota('${defAtual}')">✎ Editar NS</button><button class="btn" onclick="excluirNota('${defAtual}')">🗑 Excluir</button></div>`:'';
   document.getElementById("view").innerHTML=`
     <div class="stat">
@@ -1411,7 +1411,7 @@ function renderHorizNS(){
   const usadas=medicoesUsadasHoriz(horizAtual);
   const pills=[`<span class="pill ${horizFiltro==='todas'?'on':''}" onclick="setFiltroHoriz('todas')">Todos (${ns.itens.length})</span>`,
     `<span class="pill ${horizFiltro==='pendentes'?'on':''}" onclick="setFiltroHoriz('pendentes')">Pendentes (${s.total-s.medidas})</span>`]
-    .concat(usadas.map(n=>`<span class="pill ${String(horizFiltro)===String(n)?'on':''}" onclick="setFiltroHoriz(${n})">Medição ${n}</span>`));
+    .concat(usadas.map(n=>{const cnt=Object.values(horizMedicoes[horizAtual]||{}).filter(v=>String(v)===String(n)).length; return `<span class="pill ${String(horizFiltro)===String(n)?'on':''}" onclick="setFiltroHoriz(${n})">Medição ${n} (${cnt})</span>`;}));
   const acoes = ns.manual? `<div style="margin-left:auto;display:flex;gap:8px"><button class="btn" onclick="editarNota('${horizAtual}')">✎ Editar</button><button class="btn" onclick="excluirNota('${horizAtual}')">🗑 Excluir</button></div>`:'';
   document.getElementById("view").innerHTML=`
     <div class="pagehd"><div><h2>${esc(ns.rodovia)} ${ns.manual?'<span class="badge b-azul">manual</span>':''}</h2><div class="sb">Sinalização horizontal · ${s.total}/${s.medidas} (${s.pct}%)</div></div>${acoes}</div>
