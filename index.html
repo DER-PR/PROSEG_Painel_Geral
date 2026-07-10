@@ -1383,9 +1383,9 @@ function abrirImportDef(){ toast("Importação de defensas: em construção — 
 
 /* ================= SINALIZAÇÃO HORIZONTAL (NS manuais) ================= */
 function statHoriz(id, ns){
-  const med = horizMedicoes[id]||{};
-  const total = ns ? ns.itens.length : (horizManifest.find(m=>m.id===id)?.nItens||0);
-  const medidas = Object.keys(med).length;
+  const arr = (ns? ns.itens : (horizCache[id]?horizCache[id].itens:null)) || [];
+  const total = arr.length;
+  const medidas = arr.filter(x=> String((x&&x.medicao)||'').trim()!=='' ).length;  // concluído = medição preenchida
   return { total, medidas, pct: total? Math.round(medidas/total*100):0 };
 }
 function medicoesUsadasHoriz(id){ return [...new Set(Object.values(horizMedicoes[id]||{}).map(Number))].sort((a,b)=>a-b); }
@@ -1400,9 +1400,9 @@ function viewHorizontal(){
       <div style="margin-left:auto"><button class="btn pri" onclick="abrirNota('horizontal')">+ Cadastrar NS manual</button></div></div>
     <div class="stat">
       <div><div class="n">${horizManifest.length}</div><div class="l">Notas de serviço</div></div>
-      <div><div class="n">${totI}</div><div class="l">Itens</div></div>
-      <div><div class="n">${totMed}</div><div class="l">Medidos</div></div>
-      <div><div class="n">${totI-totMed}</div><div class="l">Pendentes</div></div>
+      <div><div class="n">${totI}</div><div class="l">Serviços</div></div>
+      <div><div class="n">${totMed}</div><div class="l">Concluídos</div></div>
+      <div><div class="n">${totI-totMed}</div><div class="l">Em aberto</div></div>
     </div>
     ${horizManifest.length? `<div class="toolbar"><input class="busca" id="buscaHoriz" placeholder="Buscar rodovia…" oninput="renderListaHoriz()"></div>
     <table><thead><tr><th>Rodovia</th><th style="text-align:right">Itens</th><th>Andamento</th></tr></thead><tbody id="tbHoriz"></tbody></table>`
@@ -1430,35 +1430,38 @@ function viewHorizNS(id){
 }
 function setFiltroHoriz(f){ horizFiltro=f; renderHorizNS(); }
 function renderHorizNS(){
-  const ns=horizCache[horizAtual]; const s=statHoriz(horizAtual,ns);
-  const usadas=medicoesUsadasHoriz(horizAtual);
-  const pills=[`<span class="pill ${horizFiltro==='todas'?'on':''}" onclick="setFiltroHoriz('todas')">Todos (${ns.itens.length})</span>`,
-    `<span class="pill ${horizFiltro==='pendentes'?'on':''}" onclick="setFiltroHoriz('pendentes')">Pendentes (${s.total-s.medidas})</span>`]
-    .concat(usadas.map(n=>`<span class="pill ${String(horizFiltro)===String(n)?'on':''}" onclick="setFiltroHoriz(${n})">Medição ${n}</span>`));
-  const acoes = ns.manual? `<div style="margin-left:auto;display:flex;gap:8px"><button class="btn" onclick="editarNota('${horizAtual}')">✎ Editar</button><button class="btn" onclick="excluirNota('${horizAtual}')">🗑 Excluir</button></div>`:'';
+  const ns=horizCache[horizAtual]; const its=ns.itens||[]; const s=statHoriz(horizAtual,ns);
+  const cont={Aguardando:0,Iniciado:0,'Concluído':0};
+  its.forEach(it=>{ const e=sitEfetivaHoriz(it); cont[e]=(cont[e]||0)+1; });
+  const pill=(f,label,n)=>`<span class="pill ${String(horizFiltro)===f?'on':''}" onclick="setFiltroHoriz('${f}')">${label} (${n})</span>`;
+  const pills=[pill('todas','Todos',its.length),pill('Aguardando','Aguardando',cont.Aguardando),pill('Iniciado','Iniciado',cont.Iniciado),pill('Concluído','Concluídos',cont['Concluído'])];
+  const acoes = `<div style="margin-left:auto;display:flex;gap:8px"><button class="btn" onclick="editarNota('${horizAtual}')">✎ Editar NS</button><button class="btn" onclick="excluirNota('${horizAtual}')">🗑 Excluir</button></div>`;
   document.getElementById("view").innerHTML=`
-    <div class="pagehd"><div><h2>${esc(ns.rodovia)} ${ns.manual?'<span class="badge b-azul">manual</span>':''}</h2><div class="sb">Sinalização horizontal · ${s.total}/${s.medidas} (${s.pct}%)</div></div>${acoes}</div>
+    <div class="pagehd"><div><h2>${esc(ns.rodovia)} <span class="badge b-azul">manual</span></h2><div class="sb">Sinalização horizontal · ${s.medidas}/${s.total} concluídos (${s.pct}%)</div></div>${acoes}</div>
+    <div class="hint">Preencha a <b>Medição</b> quando o serviço for medido — a <b>Situação</b> vira "Concluído" sozinha. A <b>Data de conclusão</b> é separada (não muda a situação). Para editar km/serviço/material, use <b>Editar NS</b>.</div>
     <div class="toolbar">${pills.join('')}</div>
-    <table><thead><tr><th style="width:44px">#</th><th>Descrição / serviço</th><th>km (início → fim)</th><th>Material</th><th style="text-align:right">Área/ext.</th><th style="width:110px">Medição</th></tr></thead>
+    <table><thead><tr><th style="width:34px">#</th><th>km (início → fim)</th><th>Serviço</th><th>Material</th><th style="width:104px">Situação</th><th style="width:104px">Data concl.</th><th style="width:96px">Medição</th></tr></thead>
     <tbody id="tbHz"></tbody></table>`;
   renderHorizItens();
 }
 function renderHorizItens(){
-  const ns=horizCache[horizAtual]; const med=horizMedicoes[horizAtual]||{};
+  const ns=horizCache[horizAtual]; const its=ns.itens||[];
   const tb=document.getElementById("tbHz");
-  const rows=ns.itens.map((it,i)=>({it,i})).filter(({i})=>{
-    const m=med[i];
-    if(horizFiltro==='todas') return true;
-    if(horizFiltro==='pendentes') return m==null;
-    return String(m)===String(horizFiltro);
-  });
-  if(!rows.length){ tb.innerHTML=`<tr><td colspan="6" class="empty">Nenhum item neste filtro.</td></tr>`; return; }
+  const rows=its.map((it,i)=>({it,i})).filter(({it})=> horizFiltro==='todas' || sitEfetivaHoriz(it)===horizFiltro);
+  if(!rows.length){ tb.innerHTML=`<tr><td colspan="7" class="empty">Nenhum item neste filtro.</td></tr>`; return; }
+  const badge=(sit)=>{ const cls=sit==='Concluído'?'b-verde':(sit==='Iniciado'?'b-amarelo':'b-cinza'); return `<span class="badge ${cls}">${esc(sit)}</span>`; };
   tb.innerHTML=rows.map(({it,i})=>{
-    const m=med[i];
-    const km=`${esc(it.kmIniFmt||'—')} → ${esc(it.kmFimFmt||'—')}`;
-    const medCel=`<input class="med-inp" type="number" min="1" value="${m??''}" placeholder="—" onchange="setMedicaoHoriz(${i}, this.value)">`;
-    return `<tr><td class="muted">${i+1}</td><td><b>${esc(it.desc||'—')}</b></td><td>${km}</td><td>${esc(it.mat||'—')}</td><td style="text-align:right">${esc(it.area||'—')}</td><td>${medCel}</td></tr>`;
+    const km=`${esc(it.kmIni||'—')} → ${esc(it.kmFim||'—')}`;
+    const medCel=`<input class="med-inp" type="number" min="1" value="${it.medicao!=null&&it.medicao!==''?esc(String(it.medicao)):''}" placeholder="—" onchange="setHorizMedInline(${i}, this.value)" title="Digite a medição — a situação vira Concluído">`;
+    return `<tr><td class="muted">${i+1}</td><td>${km}</td><td>${esc(it.servico||'—')}</td><td class="sup">${esc(it.material||'—')}</td><td>${badge(sitEfetivaHoriz(it))}</td><td>${esc(it.dataConclusao||'—')}</td><td>${medCel}</td></tr>`;
   }).join('');
+}
+function setHorizMedInline(idx, val){
+  const def=manualDefs[horizAtual]; if(!def||!def.itens[idx]) return;
+  val=String(val).trim();
+  def.itens[idx].medicao = (val===''||Number(val)<=0) ? '' : val;   // preenchida => situação vira Concluído (derivado)
+  nuvemEnviar([{frente:"__nota__", ns:horizAtual, item:"meta", obs: JSON.stringify(def)}]);
+  renderHorizNS();
 }
 function setMedicaoHoriz(idx, val){
   if(!horizMedicoes[horizAtual]) horizMedicoes[horizAtual]={};
@@ -1489,13 +1492,15 @@ const CAMPOS_NOTA = {
     {k:"termSaida", t:"Term. saída", ph:"—", w:88},
   ]},
   horizontal: { cols:[
-    {k:"desc", t:"Descrição / serviço", ph:"Faixa contínua"},
-    {k:"kmIniFmt", t:"km início", ph:"10+438", w:88},
-    {k:"kmFimFmt", t:"km fim", ph:"10+520", w:88},
-    {k:"mat", t:"Material", ph:"Termoplástico"},
-    {k:"area", t:"Área/ext.", ph:"13,26", w:80},
+    {k:"kmIni", t:"km inicial", ph:"10+438", w:92},
+    {k:"kmFim", t:"km final", ph:"10+520", w:92},
+    {k:"servico", t:"Serviço", tipo:"select", opcoes:["Longitudinal","Canalização e Inscrição"]},
+    {k:"material", t:"Material", tipo:"select", opcoes:["Termoplástico por aspersão","Base solvente","Base solvente provisória","Termoplástico por extrusão","Plástico à frio"]},
+    {k:"situacao", t:"Situação", tipo:"select", opcoes:["Aguardando","Iniciado"], w:104},
+    {k:"dataConclusao", t:"Data conclusão", ph:"dd/mm/aa", w:104},
   ]},
 };
+function sitEfetivaHoriz(it){ return String((it&&it.medicao)||'').trim()!=='' ? 'Concluído' : ((it&&it.situacao)||'Aguardando'); }
 let notaFrente="defensa", notaEditId=null, notaLinhas=[];
 function abrirNota(frente, editId){
   notaEditId = editId||null;
@@ -1521,7 +1526,15 @@ function renderNotaForm(){
   const cfg=CAMPOS_NOTA[notaFrente];
   const head=`<tr><th style="width:24px">#</th>`+cfg.cols.map(c=>`<th>${esc(c.t)}</th>`).join('')+`<th style="width:24px"></th></tr>`;
   const body=notaLinhas.map((ln,i)=>`<tr data-i="${i}"><td class="muted">${i+1}</td>`+
-    cfg.cols.map(c=>`<td><input data-k="${c.k}" value="${esc(ln[c.k]!=null?ln[c.k]:'')}" placeholder="${esc(c.ph||'')}" style="width:${c.w?c.w+'px':'100%'};min-width:56px;padding:5px 7px;border:1px solid var(--borda);border-radius:6px;font-size:12px"></td>`).join('')+
+    cfg.cols.map(c=>{
+      const val=ln[c.k]!=null?ln[c.k]:'';
+      const st=`width:${c.w?c.w+'px':'100%'};min-width:56px;padding:5px 7px;border:1px solid var(--borda);border-radius:6px;font-size:12px`;
+      if(c.tipo==='select'){
+        const opts=`<option value="">—</option>`+c.opcoes.map(o=>`<option value="${esc(o)}" ${String(val)===o?'selected':''}>${esc(o)}</option>`).join('');
+        return `<td><select data-k="${c.k}" style="${st}">${opts}</select></td>`;
+      }
+      return `<td><input data-k="${c.k}" value="${esc(val)}" placeholder="${esc(c.ph||'')}" style="${st}"></td>`;
+    }).join('')+
     `<td><span onclick="notaRemLinha(${i})" title="Remover linha" style="cursor:pointer;color:var(--vermelho)">✕</span></td></tr>`).join('');
   document.getElementById("notaLinhas").innerHTML=`<thead>${head}</thead><tbody>${body}</tbody>`;
 }
@@ -1531,7 +1544,7 @@ function salvarNota(){
   const dataNS=(document.getElementById("notaData").value||"").trim();
   if(!rodovia){ toast("Informe a rodovia"); return; }
   const cols=CAMPOS_NOTA[notaFrente].cols;
-  const itens=notaLinhas.map(ln=>{ const o={}; cols.forEach(c=>{ o[c.k]=(ln[c.k]!=null?String(ln[c.k]).trim():""); }); return o; })
+  const itens=notaLinhas.map(ln=>{ const o=Object.assign({}, ln); cols.forEach(c=>{ o[c.k]=(ln[c.k]!=null?String(ln[c.k]).trim():""); }); if(notaFrente==="horizontal" && o.medicao==null) o.medicao=""; return o; })
     .filter(o=> cols.some(c=> o[c.k]!==""));
   if(!itens.length){ toast("Adicione ao menos um item preenchido"); return; }
   const id = notaEditId || ("man_"+notaFrente+"_"+Date.now());
