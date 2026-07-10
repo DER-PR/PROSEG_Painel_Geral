@@ -622,19 +622,20 @@ function viewDashboard(){
   const pendPanel=`<div class="panel"><h3>Pendências <span class="see" onclick="viewHome()">Ver todas</span></h3><div class="feed">`+
     pend.map(p=>`<div class="it"><div class="fi">${p.ic}</div><div><div class="ft">${esc(p.t)}</div><div class="fs">${esc(p.s)}</div></div></div>`).join('')+`</div></div>`;
 
-  // resumo de NS concluídas por frente
+  // andamento por frente — Vertical por PLACAS (medidas/total); Dispositivos/Horizontal por NS concluídas
   const frentesResumo=[
-    Object.assign({t:"Sinalização Vertical", ic:"🚦"}, resumoFrenteNS(manifest, statNS)),
-    Object.assign({t:"Dispositivos de Segurança", ic:"🛡️"}, resumoFrenteNS(defManifest, statDef)),
+    {t:"Sinalização Vertical", ic:"🚦", sub:"placas medidas", conc:totMedVert, total:totPlacas, pct: totPlacas? Math.round(totMedVert/totPlacas*100):0},
+    Object.assign({t:"Dispositivos de Segurança", ic:"🛡️", sub:"NS concluídas"}, resumoFrenteNS(defManifest, statDef)),
   ];
-  if(horizManifest.length) frentesResumo.push(Object.assign({t:"Sinalização Horizontal", ic:"🛣️"}, resumoFrenteNS(horizManifest, statHoriz)));
-  const resumoPanel=`<div class="panel" style="margin-bottom:18px"><h3>Notas de Serviço concluídas <span class="see" onclick="viewHome()">Ver todas</span></h3>
+  if(horizManifest.length) frentesResumo.push(Object.assign({t:"Sinalização Horizontal", ic:"🛣️", sub:"NS concluídas"}, resumoFrenteNS(horizManifest, statHoriz)));
+  const resumoPanel=`<div class="panel" style="margin-bottom:18px"><h3>Andamento das notas de serviço <span class="see" onclick="viewHome()">Ver todas</span></h3>
     <div class="feed">`+frentesResumo.map(fr=>{
       const cor=fr.total&&fr.pct===100?'var(--verde)':(fr.conc===0?'var(--cinza)':'var(--azul)');
       return `<div class="it"><div class="fi">${fr.ic}</div>
         <div style="flex:1"><div class="ft">${esc(fr.t)}</div>
+          <div class="fs">${esc(fr.sub)}</div>
           <div class="prog" style="margin-top:6px"><i style="width:${fr.pct}%;background:${cor}"></i></div></div>
-        <div style="white-space:nowrap;font-weight:800;font-size:15px;color:${cor}">${fr.conc}/${fr.total} <span style="font-size:12px;font-weight:600">(${fr.pct}%)</span></div></div>`;
+        <div style="white-space:nowrap;font-weight:800;font-size:15px;color:${cor}">${fmtN(fr.conc)}/${fmtN(fr.total)} <span style="font-size:12px;font-weight:600">(${fr.pct}%)</span></div></div>`;
     }).join('')+`</div></div>`;
   document.getElementById("view").innerHTML=`
     <div class="pagehd">
