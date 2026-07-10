@@ -951,7 +951,7 @@ function processarImport(){
     const porCod = {};
     ns.placas.forEach(p=>{ const c=(p.codigo||p.col_3||'').trim(); if(!porCod[c])porCod[c]=[]; porCod[c].push(p); });
     const usados = {}; // controla duplicatas: código -> quantos já casados
-    let casadas=0, naoCasadas=0;
+    let casadas=0, naoCasadas=0; const mudancas=[];
     if(!medicoes[atualNS]) medicoes[atualNS]={};
     for(let i=1;i<linhas.length;i++){
       const cod = (linhas[i][iCod]||'').trim();
@@ -968,9 +968,10 @@ function processarImport(){
       if(!alvo){ naoCasadas++; continue; }
       usados[alvo._ordem]=true;
       medicoes[atualNS][alvo._ordem]=medNum;
+      mudancas.push({frente:"vertical", ns:atualNS, item:alvo._ordem, medicao:medNum});
       casadas++;
     }
-    salvarMed();
+    salvarMed(); nuvemEnviar(mudancas);
     document.getElementById("dlgImport").close();
     toast(`Medição ${medNum}: ${casadas} placa(s) marcada(s)`+(naoCasadas?` · ${naoCasadas} não encontrada(s)`:''));
     renderNS();
