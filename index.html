@@ -548,6 +548,12 @@ function svgCurva(pts){
 }
 
 /* ================= DASHBOARD ================= */
+/* resumo por frente: quantas NS estão 100% concluídas (todas as placas/itens medidos) */
+function resumoFrenteNS(arr, statFn){
+  const total = arr.length;
+  const conc = arr.filter(m=>{ const s=statFn(m.id); return s.total>0 && s.pct===100; }).length;
+  return { conc, total, pct: total? Math.round(conc/total*100):0 };
+}
 function viewDashboard(){
   atualNS=null; defAtual=null;
   setNav("dashboard","Painel do Contrato");
@@ -616,6 +622,20 @@ function viewDashboard(){
   const pendPanel=`<div class="panel"><h3>Pendências <span class="see" onclick="viewHome()">Ver todas</span></h3><div class="feed">`+
     pend.map(p=>`<div class="it"><div class="fi">${p.ic}</div><div><div class="ft">${esc(p.t)}</div><div class="fs">${esc(p.s)}</div></div></div>`).join('')+`</div></div>`;
 
+  // resumo de NS concluídas por frente
+  const frentesResumo=[
+    Object.assign({t:"Sinalização Vertical", ic:"🚦"}, resumoFrenteNS(manifest, statNS)),
+    Object.assign({t:"Dispositivos de Segurança", ic:"🛡️"}, resumoFrenteNS(defManifest, statDef)),
+  ];
+  if(horizManifest.length) frentesResumo.push(Object.assign({t:"Sinalização Horizontal", ic:"🛣️"}, resumoFrenteNS(horizManifest, statHoriz)));
+  const resumoPanel=`<div class="panel" style="margin-bottom:18px"><h3>Notas de Serviço concluídas <span class="see" onclick="viewHome()">Ver todas</span></h3>
+    <div class="feed">`+frentesResumo.map(fr=>{
+      const cor=fr.total&&fr.pct===100?'var(--verde)':(fr.conc===0?'var(--cinza)':'var(--azul)');
+      return `<div class="it"><div class="fi">${fr.ic}</div>
+        <div style="flex:1"><div class="ft">${esc(fr.t)}</div>
+          <div class="prog" style="margin-top:6px"><i style="width:${fr.pct}%;background:${cor}"></i></div></div>
+        <div style="white-space:nowrap;font-weight:800;font-size:15px;color:${cor}">${fr.conc}/${fr.total} <span style="font-size:12px;font-weight:600">(${fr.pct}%)</span></div></div>`;
+    }).join('')+`</div></div>`;
   document.getElementById("view").innerHTML=`
     <div class="pagehd">
       <div><h2>Contrato 122/2021 – Lote 1 <span class="chip exec">Em execução</span></h2>
@@ -623,6 +643,7 @@ function viewDashboard(){
     </div>
     ${kpis}
     ${cardsHtml}
+    ${resumoPanel}
     <div class="grid3">${feed}${chartPanel}${pendPanel}</div>`;
 }
 
