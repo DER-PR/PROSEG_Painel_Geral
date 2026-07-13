@@ -1514,7 +1514,7 @@ let nsAutoIndex=null;
 async function abrirNSauto(){
   const sel=document.getElementById("nsAutoRod");
   if(!nsAutoIndex){
-    try{ nsAutoIndex=await (await fetch("dados/horizontal/_index.json",{cache:"no-store"})).json(); }
+    try{ nsAutoIndex=await (await fetch("dados/horizontal/rodovias.json",{cache:"no-store"})).json(); }
     catch(e){ toast("Não consegui carregar a lista de projetos"); return; }
   }
   sel.innerHTML=nsAutoIndex.map(r=>`<option value="${r.slug}">${esc(r.rodovia)} — ${r.nTE} itens de extrusão</option>`).join('');
