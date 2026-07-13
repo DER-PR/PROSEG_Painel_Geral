@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>PROSEG · Painel de Controle</title>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 <style>
   :root{
     --azul:#0b4f8a; --azul2:#2563eb; --azulEsc:#0f2a4a; --verde:#198754; --amarelo:#f0ad4e;
@@ -247,7 +248,9 @@
 <dialog id="dlgNSauto">
   <div class="dlg-h">Gerar prévia de NS — Legendas <span class="x" onclick="dlgNSauto.close()">×</span></div>
   <div class="dlg-b">
-    <p class="muted" style="margin-top:0;font-size:13px">Envie o <b>CSV do levantamento</b> (exportado pelo app de campo de sinalização horizontal). O painel cruza com o projeto, separa o que está <b>Desgastado + Inexistente</b> em <b>Termoplástico por Extrusão</b> e gera a <b>NS em Excel</b>.</p>
+    <p class="muted" style="margin-top:0;font-size:13px">Envie a sua <b>planilha de projeto</b> (Canalização e Inscrições, <b>com as figuras</b>) e o <b>CSV do levantamento</b>. O painel preenche as colunas <b>Levantamento</b> e <b>Nº foto</b> em cada linha, <b>preservando as figuras</b>, e devolve o Excel para você conferir e finalizar a NS.</p>
+    <label>Planilha de projeto (.xlsx, com figuras)</label>
+    <input type="file" id="nsAutoBase" accept=".xlsx" onchange="preLerNSauto()">
     <label>Levantamento de campo (.csv)</label>
     <input type="file" id="nsAutoFile" accept=".csv,text/csv" onchange="preLerNSauto()">
     <label>Rodovia (projeto)</label>
@@ -256,7 +259,7 @@
   </div>
   <div class="dlg-f">
     <button class="btn" onclick="dlgNSauto.close()">Cancelar</button>
-    <button class="btn pri" onclick="gerarNSAuto()">⬇ Gerar NS (Excel)</button>
+    <button class="btn pri" onclick="gerarNSAuto()">⬇ Gerar prévia (Excel)</button>
   </div>
 </dialog>
 
@@ -1517,84 +1520,142 @@ async function abrirNSauto(){
     try{ nsAutoIndex=await (await fetch("dados/horizontal/rodovias.json",{cache:"no-store"})).json(); }
     catch(e){ toast("Não consegui carregar a lista de projetos"); return; }
   }
-  sel.innerHTML=nsAutoIndex.map(r=>`<option value="${r.slug}">${esc(r.rodovia)} — ${r.nTE} itens de extrusão</option>`).join('');
+  sel.innerHTML=nsAutoIndex.map(r=>`<option value="${r.slug}">${esc(r.rodovia)}</option>`).join('');
+  document.getElementById("nsAutoBase").value="";
   document.getElementById("nsAutoFile").value="";
   document.getElementById("nsAutoInfo").textContent="";
   document.getElementById("dlgNSauto").showModal();
 }
 function preLerNSauto(){
-  const f=document.getElementById("nsAutoFile").files[0]; if(!f||!nsAutoIndex) return;
-  const nome=f.name.toUpperCase(); let best=null;
+  const fb=document.getElementById("nsAutoBase").files[0];
+  const fc=document.getElementById("nsAutoFile").files[0];
+  const nome=((fb&&fb.name)||"").toUpperCase()+" "+((fc&&fc.name)||"").toUpperCase();
+  if(!nsAutoIndex || nome.trim()==="") return;
+  let best=null;
   nsAutoIndex.forEach(r=>{
     const tks=r.rodovia.toUpperCase().replace(/[()]/g,'').split(/[\s\-]+/).filter(Boolean);
     if(tks.every(t=>nome.includes(t)) && (!best || r.rodovia.length>best.rodovia.length)) best=r;
   });
   if(best) document.getElementById("nsAutoRod").value=best.slug;
-  document.getElementById("nsAutoInfo").textContent = best? ("Rodovia detectada: "+best.rodovia) : "Não identifiquei a rodovia pelo nome do arquivo — selecione na lista.";
+  document.getElementById("nsAutoInfo").textContent = best? ("Rodovia detectada: "+best.rodovia) : "Não identifiquei a rodovia pelo nome — selecione na lista.";
 }
+/* ===== prévia de NS: preenche a planilha de projeto (com figuras) via cirurgia no zip ===== */
+function xmlUnesc(s){ return String(s).replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&apos;/g,"'").replace(/&amp;/g,'&'); }
+function xmlEsc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function nkm(s){ return String(s==null?'':s).trim().replace(/\./g,','); }
+function colLetra(n){ let s=''; while(n>0){ const r=(n-1)%26; s=String.fromCharCode(65+r)+s; n=(n-r-1)/26; } return s; }
+function colIdx(s){ let n=0; for(const ch of String(s)) n=n*26+(ch.charCodeAt(0)-64); return n; }
+function parseSST(xml){ const arr=[]; if(!xml) return arr;
+  const re=/<si>([\s\S]*?)<\/si>/g; let m;
+  while((m=re.exec(xml))){ let t=''; const tr=/<t[^>]*>([\s\S]*?)<\/t>/g; let tm; while((tm=tr.exec(m[1]))) t+=xmlUnesc(tm[1]); arr.push(t); }
+  return arr; }
+function cellText(cxml, sst){
+  const t=(cxml.match(/\st="([^"]+)"/)||[])[1];
+  if(t==='inlineStr'){ const im=cxml.match(/<t[^>]*>([\s\S]*?)<\/t>/); return im?xmlUnesc(im[1]):''; }
+  const vm=cxml.match(/<v>([\s\S]*?)<\/v>/); if(!vm) return '';
+  if(t==='s') return sst[parseInt(vm[1],10)]||'';
+  return xmlUnesc(vm[1]);
+}
+function celulasDaLinha(inner){ const map={}; const re=/<c r="([A-Z]+)\d+"[\s\S]*?(?:\/>|<\/c>)/g; let m; while((m=re.exec(inner))) map[m[1]]=m[0]; return map; }
+
 async function gerarNSAuto(){
-  const f=document.getElementById("nsAutoFile").files[0];
+  const fBase=document.getElementById("nsAutoBase").files[0];
+  const fCsv=document.getElementById("nsAutoFile").files[0];
   const slug=document.getElementById("nsAutoRod").value;
   const info=document.getElementById("nsAutoInfo");
-  if(!f){ toast("Selecione o CSV do levantamento"); return; }
+  if(!fBase){ toast("Selecione a planilha de projeto (.xlsx)"); return; }
+  if(!fCsv){ toast("Selecione o CSV do levantamento"); return; }
   if(!slug){ toast("Selecione a rodovia"); return; }
-  info.textContent="Gerando…";
-  let proj;
-  try{ proj=await (await fetch("dados/horizontal/"+slug+".json",{cache:"no-store"})).json(); }
-  catch(e){ toast("Não achei o projeto dessa rodovia"); info.textContent=""; return; }
-  let txt; try{ txt=await f.text(); }catch(e){ toast("Não consegui abrir o arquivo"); info.textContent=""; return; }
-  let linhas; try{ linhas=parseCSV(txt); }catch(e){ toast("Não consegui ler o CSV"); info.textContent=""; return; }
-  if(linhas.length<2){ toast("CSV sem dados"); info.textContent=""; return; }
+  if(typeof JSZip==='undefined'){ toast("Biblioteca indisponível (sem internet?)"); return; }
+  info.textContent="Gerando… aguarde alguns segundos.";
+  try{
+    const proj=await (await fetch("dados/horizontal/"+slug+".json",{cache:"no-store"})).json();
+    const map=montarMapaLev(proj, await fCsv.text());
+    const zip=await JSZip.loadAsync(await fBase.arrayBuffer());
+    const res=await preencherBaseZip(zip, map);
+    const blob=await zip.generateAsync({type:"blob",compression:"DEFLATE"});
+    const nome=(proj.rodovia||slug).replace(/[^\w-]/g,'_')+" - PROJETO com LEVANTAMENTO.xlsx";
+    const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=nome;
+    document.body.appendChild(a); a.click(); setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); },1500);
+    info.textContent="✓ Gerado — "+res.preench+" de "+res.ndados+" linhas preenchidas · figuras preservadas.";
+    toast("Prévia gerada: "+nome);
+  }catch(e){ console.error(e); info.textContent="Erro: "+((e&&e.message)||e); toast("Falha ao gerar a prévia"); }
+}
+function montarMapaLev(proj, csvTxt){
+  const linhas=parseCSV(csvTxt);
   const head=linhas[0].map(h=>String(h).trim().toLowerCase());
-  const iItem=head.findIndex(h=>h==='item');
-  const iEst=head.findIndex(h=>h==='estado');
-  const iData=head.findIndex(h=>h.indexOf('data')>=0);
-  if(iItem<0||iEst<0){ toast("O CSV não tem as colunas Item/Estado"); info.textContent=""; return; }
-  const mapa={}; (proj.itens||[]).forEach(it=> mapa[String(it[0]).trim()]=it);
-  const EXEC={desgastada:1, inexistente:1};
-  const MATNOME="Termoplástico por Extrusão";
-  const dados=[]; let areaTot=0, nItens=0, semMatch=0, dataNS="";
-  for(let r=1;r<linhas.length;r++){
-    const row=linhas[r];
-    if(iData>=0 && !dataNS){ const m=String(row[iData]||'').match(/(\d{2}\/\d{2}\/\d{4})/); if(m) dataNS=m[1]; }
-    const est=String(row[iEst]||'').trim().toLowerCase();
-    if(!EXEC[est]) continue;
-    const it=mapa[String(row[iItem]||'').trim()];
-    if(!it){ semMatch++; continue; }
-    if(it[1]!=='TE') continue;
-    nItens++;
-    (it[2]||[]).forEach(d=>{
-      const area=Number(d[10])||0; areaTot+=area;
-      dados.push(["", d[0], d[1], d[2], d[3], String(d[4]).replace(/\./g,','), d[5], d[6], String(d[7]).replace(/\./g,','), d[8], MATNOME, d[9], area]);
-    });
+  const iItem=head.findIndex(h=>h==='item'), iEst=head.findIndex(h=>h==='estado'), iFoto=head.findIndex(h=>h==='foto');
+  if(iItem<0||iEst<0) throw new Error("CSV sem colunas Item/Estado");
+  const lev={};
+  for(let r=1;r<linhas.length;r++){ const row=linhas[r]; lev[String(row[iItem]||'').trim()]=[String(row[iEst]||'').trim(), iFoto>=0?String(row[iFoto]||'').trim():'']; }
+  const mp={};
+  (proj.itens||[]).forEach(it=>{ const ef=lev[String(it[0]).trim()]||['','']; (it[2]||[]).forEach(d=>{ mp[String(d[0]).trim()+'|'+nkm(d[4])+'|'+nkm(d[7])]=ef; }); });
+  return mp;
+}
+async function preencherBaseZip(zip, map){
+  const paths=[]; zip.forEach(p=>{ if(/^xl\/worksheets\/sheet\d+\.xml$/.test(p)) paths.push(p); });
+  if(!paths.length) throw new Error("planilha sem worksheet");
+  let sp=paths[0], xml=await zip.file(paths[0]).async("string");
+  for(const p of paths){ const s=await zip.file(p).async("string"); if(s.length>xml.length){ xml=s; sp=p; } }
+  const sst=parseSST(zip.file("xl/sharedStrings.xml")?await zip.file("xl/sharedStrings.xml").async("string"):"");
+  let styles=zip.file("xl/styles.xml")?await zip.file("xl/styles.xml").async("string"):"";
+
+  const rows={}; let rm; const rre=/<row ([^>]*?)>([\s\S]*?)<\/row>/g;
+  while((rm=rre.exec(xml))){ const rn=parseInt((rm[1].match(/r="(\d+)"/)||[])[1],10); if(rn) rows[rn]=celulasDaLinha(rm[2]); }
+  const val=(rn,col)=> (rows[rn]&&rows[rn][col])? cellText(rows[rn][col],sst) : '';
+
+  let HDR=0;
+  for(let r=1;r<=15 && !HDR;r++){ for(const c in (rows[r]||{})){ if(/^c[oó]digo$/i.test(cellText(rows[r][c],sst).trim())){ HDR=r; break; } } }
+  if(!HDR) throw new Error("não achei o cabeçalho (linha do 'Código')");
+  let colCod='C', colArea='N', locIni=null, locFim=null;
+  for(const c in rows[HDR]){ const v=cellText(rows[HDR][c],sst).trim().toLowerCase();
+    if(v==='código'||v==='codigo') colCod=c;
+    else if(v.indexOf('rea (')>=0||v==='área'||v==='area') colArea=c;
+    else if(v.indexOf('localiza')>=0 && v.indexOf('inicial')>=0) locIni=c;
+    else if(v.indexOf('localiza')>=0 && v.indexOf('final')>=0) locFim=c;
   }
-  if(!dados.length){ toast("Nenhum item Desgastado/Inexistente de Extrusão neste levantamento"); info.textContent=""; return; }
-  if(!dataNS){ const dt=new Date(); dataNS=String(dt.getDate()).padStart(2,'0')+'/'+String(dt.getMonth()+1).padStart(2,'0')+'/'+dt.getFullYear(); }
-  const rod=proj.rodovia||slug.toUpperCase();
-  const aoa=[
-    ["NOTA DE SERVIÇO - MARCAS DE CANALIZAÇÃO E INSCRIÇÕES NO PAVIMENTO","","","","","","","","","","","",""],
-    ["Rodovia: "+rod+"   Data: "+dataNS,"","","Contrato/Lote: 122/2021 - LOTE 1","","","","","","Empresa: Consórcio Mobilidade Sul","","",""],
-    ["Figura","Código","Descrição","Localização inicial","","","Localização final","","","Eixo","Material","Espessura (mm)","Área (m²)"],
-    ["","","","Coordenadas Geográficas","","km","Coordenadas Geográficas","","km","","","",""],
-    ["","","","Latitude","Longitude","","Latitude","Longitude","","","","",""]
-  ].concat(dados);
-  aoa.push(["","","","","","","","","","","","TOTAL", Math.round(areaTot*100)/100]);
-  const ws=XLSX.utils.aoa_to_sheet(aoa);
-  ws['!merges']=[
-    {s:{r:0,c:0},e:{r:0,c:12}},
-    {s:{r:1,c:0},e:{r:1,c:2}},{s:{r:1,c:3},e:{r:1,c:8}},{s:{r:1,c:9},e:{r:1,c:12}},
-    {s:{r:2,c:0},e:{r:4,c:0}},{s:{r:2,c:1},e:{r:4,c:1}},{s:{r:2,c:2},e:{r:4,c:2}},
-    {s:{r:2,c:3},e:{r:2,c:5}},{s:{r:2,c:6},e:{r:2,c:8}},
-    {s:{r:2,c:9},e:{r:4,c:9}},{s:{r:2,c:10},e:{r:4,c:10}},{s:{r:2,c:11},e:{r:4,c:11}},{s:{r:2,c:12},e:{r:4,c:12}},
-    {s:{r:3,c:3},e:{r:3,c:4}},{s:{r:3,c:5},e:{r:4,c:5}},{s:{r:3,c:6},e:{r:3,c:7}},{s:{r:3,c:8},e:{r:4,c:8}}
-  ];
-  ws['!cols']=[{wch:9},{wch:10},{wch:42},{wch:13},{wch:13},{wch:11},{wch:13},{wch:13},{wch:11},{wch:10},{wch:26},{wch:13},{wch:10}];
-  const wb=XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, ("NS_"+rod).replace(/[^\w]/g,'_').substring(0,28));
-  const nomeArq=rod.replace(/[^\w-]/g,'_')+"_NS_"+dataNS.replace(/\//g,'.')+"_Extrusao.xlsx";
-  XLSX.writeFile(wb, nomeArq);
-  info.textContent="✓ Gerado — "+rod+": "+nItens+" itens · "+dados.length+" linhas · "+(Math.round(areaTot*100)/100).toLocaleString('pt-BR')+" m²"+(semMatch?(" · "+semMatch+" item(ns) do CSV sem correspondência no projeto"):"");
-  toast("NS gerada: "+nomeArq);
+  const colKmI = locIni? colLetra(colIdx(locIni)+2) : 'G';
+  const colKmF = locFim? colLetra(colIdx(locFim)+2) : 'J';
+  const colLev = colLetra(colIdx(colArea)+1), colFoto = colLetra(colIdx(colArea)+2);
+  const DSTART=HDR+4;
+
+  const headerS=(xml.match(new RegExp('<c r="'+colArea+HDR+'"[^>]*?\\ss="(\\d+)"'))||[])[1]||'0';
+  let firstData=DSTART; for(let r=DSTART;r<DSTART+3000;r++){ if(rows[r]&&val(r,colCod)){ firstData=r; break; } }
+  const dataRefS=parseInt((xml.match(new RegExp('<c r="'+colArea+firstData+'"[^>]*?\\ss="(\\d+)"'))||[])[1]||'0',10);
+  let borderId='0';
+  const cxm=styles.match(/<cellXfs count="(\d+)">([\s\S]*?)<\/cellXfs>/);
+  if(cxm){ const xfs=cxm[2].match(/<xf\b[\s\S]*?(?:\/>|<\/xf>)/g)||[]; if(xfs[dataRefS]){ const b=xfs[dataRefS].match(/borderId="(\d+)"/); if(b) borderId=b[1]; } }
+  const fontId=parseInt((styles.match(/<fonts count="(\d+)"/)||[])[1]||'0',10);
+  styles=styles.replace(/<fonts count="(\d+)"/, (m,n)=>'<fonts count="'+(parseInt(n,10)+1)+'"').replace('</fonts>', '<font><sz val="18"/><name val="Arial"/><family val="2"/></font></fonts>');
+  const dataS=parseInt(cxm?cxm[1]:'0',10);
+  styles=styles.replace(/<cellXfs count="(\d+)"/, (m,n)=>'<cellXfs count="'+(parseInt(n,10)+1)+'"').replace('</cellXfs>', '<xf numFmtId="0" fontId="'+fontId+'" fillId="0" borderId="'+borderId+'" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf></cellXfs>');
+
+  let preench=0, ndados=0;
+  function novas(rn){
+    if(rn===HDR) return '<c r="'+colLev+HDR+'" s="'+headerS+'" t="inlineStr"><is><t>Levantamento</t></is></c><c r="'+colFoto+HDR+'" s="'+headerS+'" t="inlineStr"><is><t>Nº foto</t></is></c>';
+    if(rn===HDR+1||rn===HDR+2) return '<c r="'+colLev+rn+'" s="'+headerS+'"/><c r="'+colFoto+rn+'" s="'+headerS+'"/>';
+    if(rn>=DSTART && rows[rn] && val(rn,colCod)){
+      ndados++;
+      const ef=map[String(val(rn,colCod)).trim()+'|'+nkm(val(rn,colKmI))+'|'+nkm(val(rn,colKmF))]||['',''];
+      let c='';
+      if(ef[0]){ c+='<c r="'+colLev+rn+'" s="'+dataS+'" t="inlineStr"><is><t>'+xmlEsc(ef[0])+'</t></is></c>'; preench++; }
+      if(ef[1]){ c+='<c r="'+colFoto+rn+'" s="'+dataS+'" t="inlineStr"><is><t>'+xmlEsc(ef[1])+'</t></is></c>'; }
+      return c;
+    }
+    return '';
+  }
+  xml=xml.replace(/<row ([^>]*?)>([\s\S]*?)<\/row>/g, (m,attrs,inner)=>{
+    const rn=parseInt((attrs.match(/r="(\d+)"/)||[])[1],10);
+    const add=novas(rn); if(!add) return m;
+    attrs=attrs.replace(/spans="(\d+):\d+"/, (s,a)=>'spans="'+a+':'+colIdx(colFoto)+'"');
+    return '<row '+attrs+'>'+inner+add+'</row>';
+  });
+  xml=xml.replace(/(<dimension ref="[^"]*:)[A-Z]+(\d+")/, (m,a,b)=>a+colFoto+b);
+  xml=xml.replace(/<mergeCells count="(\d+)">/, (m,n)=>'<mergeCells count="'+(parseInt(n,10)+2)+'"><mergeCell ref="'+colLev+HDR+':'+colLev+(HDR+2)+'"/><mergeCell ref="'+colFoto+HDR+':'+colFoto+(HDR+2)+'"/>');
+
+  zip.file(sp, xml);
+  if(styles) zip.file("xl/styles.xml", styles);
+  return {preench, ndados};
 }
 function viewHorizNS(id){
   horizAtual=id; horizFiltro="todas";
