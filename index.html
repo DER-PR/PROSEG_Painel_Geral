@@ -150,6 +150,7 @@
   .b-amarelo{background:#fdf3e2;color:#b5730f}
   .b-cinza{background:#eef0f2;color:var(--cinza)}
   .b-azul{background:#e7f0fb;color:var(--azul)}
+  .b-vermelho{background:#fdecec;color:#c0392b}
   .prog{height:8px;background:#e9edf1;border-radius:6px;overflow:hidden;min-width:80px}
   .prog > i{display:block;height:100%;background:var(--verde)}
   .imgcel{width:52px;height:40px;background:#f4f6f8;border:1px dashed #c7ced6;border-radius:5px;display:flex;align-items:center;justify-content:center;color:#aeb6bf;font-size:9px;text-align:center;line-height:1.1}
@@ -494,6 +495,7 @@ const NAV = [
     {id:"dashboard", t:"Dashboard", ic:"🏠", go:"viewDashboard()"},
     {id:"notas", t:"Notas de Serviço", ic:"📋", go:"viewHome()"},
     {id:"controle", t:"Controle de NS", ic:"✅", go:"viewControleNS()"},
+    {id:"validades", t:"Validades Horizontal", ic:"⏳", go:"viewValidades()"},
     {id:"medicoes", t:"Medições", ic:"📊", soon:true},
     {id:"relatorios", t:"Relatórios", ic:"📄", go:"viewRelatorios()"},
     {id:"financeiro", t:"Financeiro", ic:"💰", go:"viewFinanceiro()"},
@@ -1551,6 +1553,62 @@ function setControle(id, campo, val){
   if(!controleNS[id]) controleNS[id]={};
   controleNS[id][campo]=!!val;
   nuvemEnviar([{frente:"__controle__", ns:id, item:"meta", obs: JSON.stringify(controleNS[id])}]);
+}
+
+/* ================= VALIDADES — SINALIZAÇÃO HORIZONTAL ================= */
+const VALIDADE_MESES={ "termoplástico por extrusão":36, "termoplástico por aspersão":36,
+  "plástico à frio":36, "base solvente":24, "base solvente provisória":12 };
+function valMeses(mat){ const v=VALIDADE_MESES[String(mat||'').trim().toLowerCase()]; return v==null?null:v; }
+function valParse(s){
+  const m=String(s||'').trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/); if(!m) return null;
+  let a=parseInt(m[3],10); if(a<100) a+=2000;
+  const d=new Date(a, parseInt(m[2],10)-1, parseInt(m[1],10)); d.setHours(0,0,0,0);
+  return isNaN(d.getTime())?null:d;
+}
+function valAddMeses(d, meses){ const x=new Date(d); x.setMonth(x.getMonth()+meses); return x; }
+function valFmt(d){ return String(d.getDate()).padStart(2,'0')+'/'+String(d.getMonth()+1).padStart(2,'0')+'/'+d.getFullYear(); }
+function dadosValidades(){
+  const hoje=new Date(); hoje.setHours(0,0,0,0);
+  const out=[];
+  horizManifest.forEach(m=>{
+    const its=(horizCache[m.id]&&horizCache[m.id].itens)||[];
+    if(statusNSItens(its)!=='Concluído') return;   // só entram as concluídas
+    const mat=(its.map(i=>i&&i.material).filter(Boolean)[0])||'';
+    let dConcl=null, dConclStr='';
+    its.forEach(i=>{ const d=valParse(i&&i.dataConclusao); if(d && (!dConcl || d>dConcl)){ dConcl=d; dConclStr=i.dataConclusao; } });
+    const meses=valMeses(mat);
+    let venc=null, dias=null;
+    if(dConcl && meses!=null){ venc=valAddMeses(dConcl,meses); dias=Math.round((venc-hoje)/86400000); }
+    out.push({id:m.id, rodovia:m.rodovia, material:mat, dConclStr, meses, venc, dias});
+  });
+  out.sort((a,b)=> (a.venc?a.venc.getTime():Infinity)-(b.venc?b.venc.getTime():Infinity));
+  return out;
+}
+function viewValidades(){
+  setNav("validades","Validades — Sinalização Horizontal");
+  setCrumbs([{t:"Dashboard", go:"viewDashboard()"},{t:"Validades — Sinalização Horizontal"}]);
+  const dados=dadosValidades();
+  const nVenc=dados.filter(v=>v.dias!=null && v.dias<0).length;
+  const nProx=dados.filter(v=>v.dias!=null && v.dias>=0 && v.dias<=90).length;
+  const linhas=dados.map(v=>{
+    let selo='<span class="badge b-cinza">informe a data</span>', vencTxt='—';
+    if(v.venc){
+      vencTxt=valFmt(v.venc);
+      if(v.dias<0){ selo=`<span class="badge b-vermelho">vencido há ${-v.dias} d</span>`; }
+      else if(v.dias<=90){ selo=`<span class="badge b-amarelo">vence em ${v.dias} d</span>`; }
+      else { selo=`<span class="badge b-verde">vigente</span>`; }
+    } else if(v.meses==null){ selo='<span class="badge b-cinza">material sem prazo</span>'; }
+    return `<tr><td><b>${esc(v.rodovia)}</b></td><td class="sup">${esc(v.material||'—')}</td><td>${v.meses!=null?v.meses+' meses':'—'}</td><td class="muted">${esc(v.dConclStr||'—')}</td><td>${vencTxt}</td><td>${selo}</td></tr>`;
+  }).join('');
+  document.getElementById("view").innerHTML=`
+    <div class="pagehd"><div><h2>Validades — Sinalização Horizontal</h2><div class="sb">NS concluídas e o vencimento da validade do material, contado a partir da data de conclusão</div></div></div>
+    ${dados.length? `<div class="stat">
+      <div><div class="n">${dados.length}</div><div class="l">NS concluídas</div></div>
+      <div><div class="n" style="color:#c0392b">${nVenc}</div><div class="l">Vencidas</div></div>
+      <div><div class="n" style="color:#b5730f">${nProx}</div><div class="l">Vencem em ≤ 90 dias</div></div>
+    </div>
+    <table><thead><tr><th>Rodovia</th><th>Material</th><th>Validade</th><th>Data de conclusão</th><th>Vencimento</th><th>Situação</th></tr></thead><tbody>${linhas}</tbody></table>`
+    : `<div class="empty" style="padding:24px">Nenhuma NS horizontal concluída ainda.<br>Quando uma NS for dada como <b>concluída</b> (com a data de conclusão), ela aparece aqui com o vencimento.</div>`}`;
 }
 
 /* ---------- NS automática de legendas (cruza levantamento de campo x projeto) ---------- */
