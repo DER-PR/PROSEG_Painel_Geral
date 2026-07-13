@@ -1599,6 +1599,8 @@ async function preencherBaseZip(zip, map){
   for(const p of paths){ const s=await zip.file(p).async("string"); if(s.length>xml.length){ xml=s; sp=p; } }
   const sst=parseSST(zip.file("xl/sharedStrings.xml")?await zip.file("xl/sharedStrings.xml").async("string"):"");
   let styles=zip.file("xl/styles.xml")?await zip.file("xl/styles.xml").async("string"):"";
+  let tblPath=null; zip.forEach(p=>{ if(/^xl\/tables\/table\d+\.xml$/.test(p)&&!tblPath) tblPath=p; });
+  let tblXml=tblPath?await zip.file(tblPath).async("string"):"";
 
   const rows={}; let rm; const rre=/<row ([^>]*?)>([\s\S]*?)<\/row>/g;
   while((rm=rre.exec(xml))){ const rn=parseInt((rm[1].match(/r="(\d+)"/)||[])[1],10); if(rn) rows[rn]=celulasDaLinha(rm[2]); }
@@ -1618,6 +1620,9 @@ async function preencherBaseZip(zip, map){
   const colKmF = locFim? colLetra(colIdx(locFim)+2) : 'J';
   const colLev = colLetra(colIdx(colArea)+1), colFoto = colLetra(colIdx(colArea)+2);
   const DSTART=HDR+4;
+  const header8S=(xml.match(new RegExp('<c r="'+colArea+(HDR+3)+'"[^>]*?\\ss="(\\d+)"'))||[])[1]||'0';
+  let tblCnt=0, colN1='', colN2='';
+  if(tblXml){ tblCnt=parseInt((tblXml.match(/<tableColumns count="(\d+)"/)||[])[1]||'0',10); colN1='Coluna'+(tblCnt+1); colN2='Coluna'+(tblCnt+2); }
 
   const headerS=(xml.match(new RegExp('<c r="'+colArea+HDR+'"[^>]*?\\ss="(\\d+)"'))||[])[1]||'0';
   let firstData=DSTART; for(let r=DSTART;r<DSTART+3000;r++){ if(rows[r]&&val(r,colCod)){ firstData=r; break; } }
@@ -1634,6 +1639,7 @@ async function preencherBaseZip(zip, map){
   function novas(rn){
     if(rn===HDR) return '<c r="'+colLev+HDR+'" s="'+headerS+'" t="inlineStr"><is><t>Levantamento</t></is></c><c r="'+colFoto+HDR+'" s="'+headerS+'" t="inlineStr"><is><t>Nº foto</t></is></c>';
     if(rn===HDR+1||rn===HDR+2) return '<c r="'+colLev+rn+'" s="'+headerS+'"/><c r="'+colFoto+rn+'" s="'+headerS+'"/>';
+    if(rn===HDR+3 && colN1) return '<c r="'+colLev+rn+'" s="'+header8S+'" t="inlineStr"><is><t>'+colN1+'</t></is></c><c r="'+colFoto+rn+'" s="'+header8S+'" t="inlineStr"><is><t>'+colN2+'</t></is></c>';
     if(rn>=DSTART && rows[rn] && val(rn,colCod)){
       ndados++;
       const ef=map[String(val(rn,colCod)).trim()+'|'+nkm(val(rn,colKmI))+'|'+nkm(val(rn,colKmF))]||['',''];
@@ -1647,11 +1653,18 @@ async function preencherBaseZip(zip, map){
   xml=xml.replace(/<row ([^>]*?)>([\s\S]*?)<\/row>/g, (m,attrs,inner)=>{
     const rn=parseInt((attrs.match(/r="(\d+)"/)||[])[1],10);
     const add=novas(rn); if(!add) return m;
-    attrs=attrs.replace(/spans="(\d+):\d+"/, (s,a)=>'spans="'+a+':'+colIdx(colFoto)+'"');
+    attrs=attrs.replace(/spans="(\d+):(\d+)"/, (s,a,b)=>'spans="'+a+':'+Math.max(parseInt(b,10),colIdx(colFoto))+'"');
     return '<row '+attrs+'>'+inner+add+'</row>';
   });
   xml=xml.replace(/(<dimension ref="[^"]*:)[A-Z]+(\d+")/, (m,a,b)=>a+colFoto+b);
   xml=xml.replace(/<mergeCells count="(\d+)">/, (m,n)=>'<mergeCells count="'+(parseInt(n,10)+2)+'"><mergeCell ref="'+colLev+HDR+':'+colLev+(HDR+2)+'"/><mergeCell ref="'+colFoto+HDR+':'+colFoto+(HDR+2)+'"/>');
+  // estende a tabela do Excel (leva o filtro p/ Levantamento e Nº foto)
+  if(tblXml){
+    tblXml=tblXml.replace(new RegExp(':'+colArea+'(\\d+)"','g'), ':'+colFoto+'$1"');
+    tblXml=tblXml.replace(/<tableColumns count="(\d+)"/, (m,n)=>'<tableColumns count="'+(parseInt(n,10)+2)+'"');
+    tblXml=tblXml.replace('</tableColumns>', '<tableColumn id="'+(tblCnt+1)+'" name="'+colN1+'"/><tableColumn id="'+(tblCnt+2)+'" name="'+colN2+'"/></tableColumns>');
+    zip.file(tblPath, tblXml);
+  }
 
   zip.file(sp, xml);
   if(styles) zip.file("xl/styles.xml", styles);
