@@ -560,7 +560,7 @@ function viewDashboard(){
   document.getElementById("crumbs").innerHTML="";
   const f=(contrato&&contrato.financeiro)||{};
   const pct=f.pctExecucao!=null?f.pctExecucao:0;
-  const nNotas=manifest.length+defManifest.length;
+  const nNotas=manifest.length+defManifest.length+horizManifest.length;
   // estatísticas de campo
   const totPlacas=manifest.reduce((s,m)=>s+(m.totalPlacas||0),0);
   const totMedVert=manifest.reduce((s,m)=>s+statNS(m.id).medidas,0);
@@ -582,7 +582,7 @@ function viewDashboard(){
 
   const cards=[
     {t:"Sinalização Vertical", d:manifest.length+" notas de serviço", ic:"🚦", bg:"#e11d48", go:"viewVertical()"},
-    {t:"Sinalização Horizontal", d:"em breve", ic:"🛣️", bg:"#16a34a", off:true},
+    {t:"Sinalização Horizontal", d:horizManifest.length+" notas de serviço", ic:"🛣️", bg:"#16a34a", go:"viewHorizontal()"},
     {t:"Dispositivos de Segurança", d:defManifest.length+" notas de serviço", ic:"🛡️", bg:"#f59e0b", go:"viewDefensas()"},
     {t:"Projeto Executivo", d:"em breve", ic:"📐", bg:"#7c3aed", off:true},
     {t:"Financeiro", d:"Resumo financeiro", ic:"💰", bg:"#2563eb", go:"viewFinanceiro()"},
@@ -1418,7 +1418,11 @@ function renderListaHoriz(){
     const s=statHoriz(m.id);
     const cor=s.pct===100?'var(--verde)':(s.medidas===0?'var(--cinza)':'var(--azul)');
     const andam=`<div style="display:flex;align-items:center;gap:8px;min-width:160px"><div class="prog" style="flex:1"><i style="width:${s.pct}%"></i></div><span style="white-space:nowrap"><b>${s.total}/${s.medidas}</b> <span style="color:${cor};font-weight:600">(${s.pct}%)</span></span></div>`;
-    return `<tr class="nsrow" onclick="viewHorizNS('${m.id}')"><td><b>${esc(m.rodovia)}</b>${m.manual?' <span class="badge b-azul" title="Cadastrada manualmente">manual</span>':''}</td><td style="text-align:right">${m.nItens}</td><td>${andam}</td></tr>`;
+    const its=(horizCache[m.id]&&horizCache[m.id].itens)||[];
+    const servs=[...new Set(its.map(i=>i&&i.servico).filter(Boolean))].join(', ');
+    const mats=[...new Set(its.map(i=>i&&i.material).filter(Boolean))].join(', ');
+    const resumo=[servs,mats].filter(Boolean).join(' / ');
+    return `<tr class="nsrow" onclick="viewHorizNS('${m.id}')"><td><b>${esc(m.rodovia)}</b>${resumo?` <span class="muted" style="font-weight:500">/ ${esc(resumo)}</span>`:''}</td><td style="text-align:right">${m.nItens}</td><td>${andam}</td></tr>`;
   }).join('');
 }
 function viewHorizNS(id){
@@ -1437,7 +1441,7 @@ function renderHorizNS(){
   const pills=[pill('todas','Todos',its.length),pill('Aguardando','Aguardando',cont.Aguardando),pill('Iniciado','Iniciado',cont.Iniciado),pill('Concluído','Concluídos',cont['Concluído'])];
   const acoes = `<div style="margin-left:auto;display:flex;gap:8px"><button class="btn" onclick="editarNota('${horizAtual}')">✎ Editar NS</button><button class="btn" onclick="excluirNota('${horizAtual}')">🗑 Excluir</button></div>`;
   document.getElementById("view").innerHTML=`
-    <div class="pagehd"><div><h2>${esc(ns.rodovia)} <span class="badge b-azul">manual</span></h2><div class="sb">Sinalização horizontal · ${s.medidas}/${s.total} concluídos (${s.pct}%)</div></div>${acoes}</div>
+    <div class="pagehd"><div><h2>${esc(ns.rodovia)}</h2><div class="sb">Sinalização horizontal · ${s.medidas}/${s.total} concluídos (${s.pct}%)</div></div>${acoes}</div>
     <div class="hint">Preencha a <b>Medição</b> quando o serviço for medido — a <b>Situação</b> vira "Concluído" sozinha. A <b>Data de conclusão</b> é separada (não muda a situação). Para editar km/serviço/material, use <b>Editar NS</b>.</div>
     <div class="toolbar">${pills.join('')}</div>
     <table><thead><tr><th style="width:34px">#</th><th>km (início → fim)</th><th>Serviço</th><th>Material</th><th style="width:104px">Situação</th><th style="width:104px">Data concl.</th><th style="width:96px">Medição</th></tr></thead>
