@@ -254,6 +254,7 @@
           <option value="defensa">Dispositivos (Defensa)</option>
           <option value="vertical">Sinalização Vertical</option>
           <option value="horizontal">Sinalização Horizontal</option>
+          <option value="revisao">Revisão de Projeto</option>
         </select></div>
       <div style="flex:1;min-width:110px"><label>Rodovia</label><input id="notaRod" placeholder="PR-090" style="width:100%;padding:8px;border:1px solid var(--borda);border-radius:8px;font-size:14px"></div>
       <div style="flex:1;min-width:110px"><label>Data da NS</label><input id="notaData" placeholder="22.05.26" style="width:100%;padding:8px;border:1px solid var(--borda);border-radius:8px;font-size:14px"></div>
@@ -332,6 +333,12 @@ let horizFiltro = "todas";
 function carregarHorizMed(){ try{ horizMedicoes = JSON.parse(localStorage.getItem(LS_HORIZ))||{}; }catch(e){ horizMedicoes={}; } }
 function salvarHorizMed(){ localStorage.setItem(LS_HORIZ, JSON.stringify(horizMedicoes)); }
 
+/* ===== REVISÃO DE PROJETO (só NS manuais, como horizontal) ===== */
+let revManifest = [];       // lista de NS de revisão de projeto
+let revCache = {};          // id -> objeto carregado
+let revAtual = null;        // id da NS aberta
+let revFiltro = "todas";
+
 /* ===== RELATÓRIOS (PDFs ficam no Google Drive; o site guarda só o registro) ===== */
 const LS_REL = "proseg_painel_relatorios_v1";
 let relatorios = [];   // [{id, titulo, tipo, data, medicao, link}]
@@ -357,6 +364,10 @@ function registrarNotaManual(id, def){
     horizCache[id]={_id:id, rodovia, manual:true, itens};
     horizManifest = horizManifest.filter(m=>m.id!==id);
     horizManifest.push({id, rodovia, nItens:itens.length, manual:true});
+  } else if(def.frente==="revisao"){
+    revCache[id]={_id:id, rodovia, manual:true, itens};
+    revManifest = revManifest.filter(m=>m.id!==id);
+    revManifest.push({id, rodovia, dataNS, nItens:itens.length, manual:true});
   }
 }
 /* remove uma NS manual dos manifests/caches locais */
@@ -366,6 +377,7 @@ function removerNotaManualLocal(id){
   if(def.frente==="vertical"){ delete nsCache[id]; manifest=manifest.filter(m=>m.id!==id); }
   else if(def.frente==="defensa"){ delete defCache[id]; defManifest=defManifest.filter(m=>m.id!==id); }
   else if(def.frente==="horizontal"){ delete horizCache[id]; horizManifest=horizManifest.filter(m=>m.id!==id); }
+  else if(def.frente==="revisao"){ delete revCache[id]; revManifest=revManifest.filter(m=>m.id!==id); }
 }
 /* limpa todas as NS manuais dos manifests (antes de recarregar da nuvem) */
 function limparNotasManuais(){
@@ -420,6 +432,7 @@ function ordenarManifests(){
   manifest.sort((a,b)=> (a.rodovia+(a.trecho||"")).localeCompare(b.rodovia+(b.trecho||""),'pt'));
   defManifest.sort((a,b)=> a.rodovia.localeCompare(b.rodovia,'pt'));
   horizManifest.sort((a,b)=> a.rodovia.localeCompare(b.rodovia,'pt'));
+  revManifest.sort((a,b)=> a.rodovia.localeCompare(b.rodovia,'pt'));
 }
 /* tela de login */
 function viewLogin(msg){
@@ -560,7 +573,7 @@ function viewDashboard(){
   document.getElementById("crumbs").innerHTML="";
   const f=(contrato&&contrato.financeiro)||{};
   const pct=f.pctExecucao!=null?f.pctExecucao:0;
-  const nNotas=manifest.length+defManifest.length+horizManifest.length;
+  const nNotas=manifest.length+defManifest.length+horizManifest.length+revManifest.length;
   // estatísticas de campo
   const totPlacas=manifest.reduce((s,m)=>s+(m.totalPlacas||0),0);
   const totMedVert=manifest.reduce((s,m)=>s+statNS(m.id).medidas,0);
@@ -583,10 +596,11 @@ function viewDashboard(){
   const cards=[
     {t:"Sinalização Vertical", d:manifest.length+" notas de serviço", ic:"🚦", bg:"#e11d48", go:"viewVertical()"},
     {t:"Sinalização Horizontal", d:horizManifest.length+" notas de serviço", ic:"🛣️", bg:"#16a34a", go:"viewHorizontal()"},
+    {t:"Tachas e Tachões", d:"em breve", ic:"🔵", bg:"#0ea5e9", off:true},
     {t:"Dispositivos de Segurança", d:defManifest.length+" notas de serviço", ic:"🛡️", bg:"#f59e0b", go:"viewDefensas()"},
-    {t:"Projeto Executivo", d:"em breve", ic:"📐", bg:"#7c3aed", off:true},
-    {t:"Financeiro", d:"Resumo financeiro", ic:"💰", bg:"#2563eb", go:"viewFinanceiro()"},
+    {t:"Revisão de Projeto", d:revManifest.length+" notas de serviço", ic:"📐", bg:"#7c3aed", go:"viewRevisao()"},
     {t:"Cronograma / Curva S", d:"Evolução física-financeira", ic:"📈", bg:"#0891b2", go:"viewCronograma()"},
+    {t:"Financeiro", d:"Resumo financeiro", ic:"💰", bg:"#2563eb", go:"viewFinanceiro()"},
     {t:"Retrorrefletância", d:"em breve", ic:"🔦", bg:"#0d9488", off:true},
     {t:"Arquivos", d:"em breve", ic:"🗂️", bg:"#6b7280", off:true},
   ];
@@ -628,6 +642,7 @@ function viewDashboard(){
     Object.assign({t:"Dispositivos de Segurança", ic:"🛡️", sub:"NS concluídas"}, resumoFrenteNS(defManifest, statDef)),
   ];
   if(horizManifest.length) frentesResumo.push(Object.assign({t:"Sinalização Horizontal", ic:"🛣️", sub:"NS concluídas"}, resumoFrenteNS(horizManifest, statHoriz)));
+  if(revManifest.length) frentesResumo.push(Object.assign({t:"Revisão de Projeto", ic:"📐", sub:"NS concluídas"}, resumoFrenteNS(revManifest, statRev)));
   const resumoPanel=`<div class="panel" style="margin-bottom:18px"><h3>Andamento das notas de serviço <span class="see" onclick="viewHome()">Ver todas</span></h3>
     <div class="feed">`+frentesResumo.map(fr=>{
       const cor=fr.total&&fr.pct===100?'var(--verde)':(fr.conc===0?'var(--cinza)':'var(--azul)');
@@ -767,8 +782,9 @@ function viewHome(){
   const opts = [
     {t:"Sinalização Vertical", ic:"🚦", bg:"#e11d48", d:manifest.length+" notas de serviço", go:"viewVertical()"},
     {t:"Sinalização Horizontal", ic:"🛣️", bg:"#16a34a", d:horizManifest.length+" notas de serviço", go:"viewHorizontal()"},
+    {t:"Tachas e Tachões", ic:"🔵", bg:"#0ea5e9", d:"em breve", off:true},
     {t:"Dispositivos de Segurança", ic:"🛡️", bg:"#f59e0b", d:defManifest.length+" notas de serviço", go:"viewDefensas()"},
-    {t:"Projeto Executivo", ic:"📐", bg:"#7c3aed", d:"em breve", off:true},
+    {t:"Revisão de Projeto", ic:"📐", bg:"#7c3aed", d:revManifest.length+" notas de serviço", go:"viewRevisao()"},
   ];
   document.getElementById("view").innerHTML =
     `<div class="pagehd"><div><h2>Notas de Serviço</h2><div class="sb">Acompanhamento de medição por frente</div></div>
@@ -801,6 +817,7 @@ function viewVertical(){
     </div>
     <div class="toolbar">
       <input class="busca" id="buscaNS" placeholder="Buscar rodovia (ex.: PR-281)…" oninput="renderListaNS()">
+      <button class="btn" onclick="viewPlacasPorMedicao()">🔎 Placas por medição</button>
     </div>
     <table>
       <thead><tr><th>Rodovia</th><th>NS</th><th style="text-align:right">Placas</th><th>Andamento</th></tr></thead>
@@ -827,6 +844,60 @@ function renderListaNS(){
       <td style="text-align:right">${m.totalPlacas}</td>
       <td>${andam}</td>
     </tr>`;
+  }).join('');
+}
+
+/* ---------- filtro global: placas medidas numa medição, somando rodovias ---------- */
+let filtroVertMed=null;
+function medicoesGlobaisVert(){
+  const set=new Set();
+  Object.keys(medicoes).forEach(id=>{ if(!manifest.find(m=>m.id===id)) return;
+    Object.values(medicoes[id]||{}).forEach(v=>{ const n=Number(v); if(n>0) set.add(n); }); });
+  return [...set].sort((a,b)=>a-b);
+}
+function viewPlacasPorMedicao(med){
+  atualNS=null;
+  setNav("notas","Placas por medição");
+  const meds=medicoesGlobaisVert();
+  if(med==null){ if(filtroVertMed==null || !meds.includes(filtroVertMed)) filtroVertMed = meds[meds.length-1]||null; }
+  else filtroVertMed=Number(med);
+  setCrumbs([{t:"Dashboard", go:"viewDashboard()"},{t:"Sinalização Vertical", go:"viewVertical()"},{t:"Placas por medição"}]);
+  const sel=`<select onchange="viewPlacasPorMedicao(this.value)" style="padding:8px 10px;border:1px solid var(--borda);border-radius:8px;font-size:14px">`+
+    (meds.length? meds.map(n=>`<option value="${n}" ${String(filtroVertMed)===String(n)?'selected':''}>Medição ${n}</option>`).join('') : `<option>—</option>`)+`</select>`;
+  document.getElementById("view").innerHTML=`
+    <div class="pagehd"><div><h2>Placas por medição</h2><div class="sb">Todas as placas medidas numa medição, somando as rodovias</div></div></div>
+    <div class="toolbar"><span class="muted" style="font-size:13px">Medição:</span> ${sel}
+      <div style="flex:1"></div>
+      <button class="btn" onclick="viewVertical()">← Voltar às rodovias</button></div>
+    ${meds.length? `<div class="hint" id="globHint">Carregando…</div>
+    <table><thead><tr><th style="width:56px">Placa</th><th>Rodovia</th><th>Código</th><th>km</th><th style="width:96px">NS</th></tr></thead>
+      <tbody id="tbGlob"><tr><td colspan="5" class="empty">Carregando…</td></tr></tbody></table>`
+    : `<div class="empty" style="padding:24px">Nenhuma medição lançada ainda nas placas de sinalização vertical.</div>`}`;
+  if(meds.length && filtroVertMed!=null) renderPlacasPorMedicao(filtroVertMed);
+}
+async function renderPlacasPorMedicao(medNum){
+  medNum=Number(medNum);
+  const rows=[];
+  for(const id of Object.keys(medicoes)){
+    const m=manifest.find(x=>x.id===id); if(!m) continue;
+    const o=medicoes[id]||{};
+    const its=Object.keys(o).filter(k=>Number(o[k])===medNum);
+    if(!its.length) continue;
+    let ns; try{ ns=await carregarNS(id); }catch(e){ continue; }
+    its.forEach(k=>{ const ord=Number(k); const p=(ns.placas||[]).find(x=>x._ordem===ord);
+      if(p) rows.push({id, rod:m.rodovia, img:p.img, cod:(p.codigo||p.col_3||'—'), km:(p.km||'—'), kmn:kmParaNum(p.km)}); });
+  }
+  rows.sort((a,b)=> String(a.rod).localeCompare(String(b.rod),'pt') || ((a.kmn||0)-(b.kmn||0)));
+  const tb=document.getElementById("tbGlob"); const hint=document.getElementById("globHint");
+  if(!tb) return;
+  if(hint) hint.innerHTML=`<b>${rows.length}</b> placa(s) medida(s) na <b>medição ${medNum}</b>, somando todas as rodovias.`;
+  if(!rows.length){ tb.innerHTML=`<tr><td colspan="5" class="empty">Nenhuma placa nesta medição.</td></tr>`; return; }
+  tb.innerHTML=rows.map(r=>{
+    const imgCel = r.img
+      ? `<img class="placa" loading="lazy" src="${DADOS}img/${esc(r.img)}" alt="${esc(r.cod)}" onclick="ampliar('${esc(r.img)}')">`
+      : `<div class="imgcel">sem<br>imagem</div>`;
+    return `<tr><td>${imgCel}</td><td><b>${esc(r.rod)}</b></td><td><b>${esc(r.cod)}</b></td><td>${esc(r.km)}</td>
+      <td><span class="see" onclick="viewNS('${r.id}')">abrir ›</span></td></tr>`;
   }).join('');
 }
 
@@ -1405,7 +1476,7 @@ function viewHorizontal(){
       <div><div class="n">${totI-totMed}</div><div class="l">Em aberto</div></div>
     </div>
     ${horizManifest.length? `<div class="toolbar"><input class="busca" id="buscaHoriz" placeholder="Buscar rodovia…" oninput="renderListaHoriz()"></div>
-    <table><thead><tr><th>Rodovia</th><th style="text-align:right">Itens</th><th>Andamento</th></tr></thead><tbody id="tbHoriz"></tbody></table>`
+    <table><thead><tr><th>Rodovia · Serviço · Material</th><th style="text-align:right">Serviços</th><th>Situação</th></tr></thead><tbody id="tbHoriz"></tbody></table>`
     : `<div class="empty">Nenhuma NS horizontal ainda.<br>Use <b>+ Cadastrar NS manual</b> para adicionar.</div>`}`;
   if(horizManifest.length) renderListaHoriz();
 }
@@ -1415,14 +1486,11 @@ function renderListaHoriz(){
   const list=horizManifest.filter(m=> !q || m.rodovia.toLowerCase().includes(q));
   if(!list.length){ tb.innerHTML=`<tr><td colspan="3" class="empty">Nenhuma rodovia.</td></tr>`; return; }
   tb.innerHTML=list.map(m=>{
-    const s=statHoriz(m.id);
-    const cor=s.pct===100?'var(--verde)':(s.medidas===0?'var(--cinza)':'var(--azul)');
-    const andam=`<div style="display:flex;align-items:center;gap:8px;min-width:160px"><div class="prog" style="flex:1"><i style="width:${s.pct}%"></i></div><span style="white-space:nowrap"><b>${s.total}/${s.medidas}</b> <span style="color:${cor};font-weight:600">(${s.pct}%)</span></span></div>`;
     const its=(horizCache[m.id]&&horizCache[m.id].itens)||[];
     const servs=[...new Set(its.map(i=>i&&i.servico).filter(Boolean))].join(', ');
     const mats=[...new Set(its.map(i=>i&&i.material).filter(Boolean))].join(', ');
     const resumo=[servs,mats].filter(Boolean).join(' / ');
-    return `<tr class="nsrow" onclick="viewHorizNS('${m.id}')"><td><b>${esc(m.rodovia)}</b>${resumo?` <span class="muted" style="font-weight:500">/ ${esc(resumo)}</span>`:''}</td><td style="text-align:right">${m.nItens}</td><td>${andam}</td></tr>`;
+    return `<tr class="nsrow" onclick="viewHorizNS('${m.id}')"><td><b>${esc(m.rodovia)}</b>${resumo?` <span class="muted" style="font-weight:500">/ ${esc(resumo)}</span>`:''}</td><td style="text-align:right">${m.nItens}</td><td>${seloSit(statusNSItens(its))}</td></tr>`;
   }).join('');
 }
 function viewHorizNS(id){
@@ -1467,6 +1535,85 @@ function setHorizMedInline(idx, val){
   nuvemEnviar([{frente:"__nota__", ns:horizAtual, item:"meta", obs: JSON.stringify(def)}]);
   renderHorizNS();
 }
+
+/* ================= REVISÃO DE PROJETO (NS manuais) ================= */
+function statRev(id, ns){
+  const arr=(ns? ns.itens : (revCache[id]?revCache[id].itens:null))||[];
+  const total=arr.length;
+  const medidas=arr.filter(x=> String((x&&x.medicao)||'').trim()!=='').length;
+  return { total, medidas, pct: total? Math.round(medidas/total*100):0 };
+}
+function viewRevisao(){
+  revAtual=null;
+  setNav("notas","Revisão de Projeto");
+  setCrumbs([{t:"Dashboard", go:"viewDashboard()"},{t:"Notas de Serviço", go:"viewHome()"},{t:"Revisão de Projeto"}]);
+  const totI=revManifest.reduce((s,m)=>s+(m.nItens||0),0);
+  const totMed=revManifest.reduce((s,m)=>s+statRev(m.id).medidas,0);
+  document.getElementById("view").innerHTML=`
+    <div class="pagehd"><div><h2>Revisão de Projeto</h2><div class="sb">Revisões de projeto cadastradas manualmente</div></div>
+      <div style="margin-left:auto"><button class="btn pri" onclick="abrirNota('revisao')">+ Cadastrar revisão</button></div></div>
+    <div class="stat">
+      <div><div class="n">${revManifest.length}</div><div class="l">Notas de serviço</div></div>
+      <div><div class="n">${totI}</div><div class="l">Revisões</div></div>
+      <div><div class="n">${totMed}</div><div class="l">Concluídas</div></div>
+      <div><div class="n">${totI-totMed}</div><div class="l">Em aberto</div></div>
+    </div>
+    ${revManifest.length? `<div class="toolbar"><input class="busca" id="buscaRev" placeholder="Buscar rodovia…" oninput="renderListaRev()"></div>
+    <table><thead><tr><th>Rodovia</th><th style="text-align:right">Revisões</th><th>Situação</th></tr></thead><tbody id="tbRev"></tbody></table>`
+    : `<div class="empty">Nenhuma revisão de projeto ainda.<br>Use <b>+ Cadastrar revisão</b> para adicionar.</div>`}`;
+  if(revManifest.length) renderListaRev();
+}
+function renderListaRev(){
+  const q=(document.getElementById("buscaRev")?.value||"").toLowerCase().trim();
+  const tb=document.getElementById("tbRev");
+  const list=revManifest.filter(m=> !q || m.rodovia.toLowerCase().includes(q));
+  if(!list.length){ tb.innerHTML=`<tr><td colspan="3" class="empty">Nenhuma rodovia.</td></tr>`; return; }
+  tb.innerHTML=list.map(m=>{
+    const its=(revCache[m.id]&&revCache[m.id].itens)||[];
+    return `<tr class="nsrow" onclick="viewRevNS('${m.id}')"><td><b>${esc(m.rodovia)}</b>${m.dataNS?` <span class="muted" style="font-weight:500">· ${esc(m.dataNS)}</span>`:''}</td><td style="text-align:right">${m.nItens}</td><td>${seloSit(statusNSItens(its))}</td></tr>`;
+  }).join('');
+}
+function viewRevNS(id){
+  revAtual=id; revFiltro="todas";
+  setNav("notas","Revisão de Projeto");
+  const ns=revCache[id];
+  setCrumbs([{t:"Dashboard", go:"viewDashboard()"},{t:"Revisão de Projeto", go:"viewRevisao()"},{t:ns.rodovia}]);
+  renderRevNS();
+}
+function setFiltroRev(f){ revFiltro=f; renderRevNS(); }
+function renderRevNS(){
+  const ns=revCache[revAtual]; const its=ns.itens||[]; const s=statRev(revAtual,ns);
+  const cont={Aguardando:0,Iniciado:0,'Concluído':0};
+  its.forEach(it=>{ const e=sitEfetivaHoriz(it); cont[e]=(cont[e]||0)+1; });
+  const pill=(f,label,n)=>`<span class="pill ${String(revFiltro)===f?'on':''}" onclick="setFiltroRev('${f}')">${label} (${n})</span>`;
+  const pills=[pill('todas','Todas',its.length),pill('Aguardando','Aguardando',cont.Aguardando),pill('Iniciado','Iniciado',cont.Iniciado),pill('Concluído','Concluídas',cont['Concluído'])];
+  const acoes=`<div style="margin-left:auto;display:flex;gap:8px"><button class="btn" onclick="editarNota('${revAtual}')">✎ Editar NS</button><button class="btn" onclick="excluirNota('${revAtual}')">🗑 Excluir</button></div>`;
+  document.getElementById("view").innerHTML=`
+    <div class="pagehd"><div><h2>${esc(ns.rodovia)}</h2><div class="sb">Revisão de projeto${ns.dataNS?' · '+esc(ns.dataNS):''} · ${s.medidas}/${s.total} concluídas (${s.pct}%)</div></div>${acoes}</div>
+    <div class="hint">Preencha a <b>Medição</b> quando a revisão for medida — a <b>Situação</b> vira "Concluído" sozinha. A <b>Data de conclusão</b> é separada. Para editar km/justificativa/situação, use <b>Editar NS</b>.</div>
+    <div class="toolbar">${pills.join('')}</div>
+    <table><thead><tr><th style="width:34px">#</th><th>km (início → fim)</th><th>Justificativa</th><th style="width:104px">Situação</th><th style="width:104px">Data concl.</th><th style="width:96px">Medição</th></tr></thead>
+    <tbody id="tbRv"></tbody></table>`;
+  renderRevItens();
+}
+function renderRevItens(){
+  const ns=revCache[revAtual]; const its=ns.itens||[];
+  const tb=document.getElementById("tbRv");
+  const rows=its.map((it,i)=>({it,i})).filter(({it})=> revFiltro==='todas' || sitEfetivaHoriz(it)===revFiltro);
+  if(!rows.length){ tb.innerHTML=`<tr><td colspan="6" class="empty">Nenhuma revisão neste filtro.</td></tr>`; return; }
+  tb.innerHTML=rows.map(({it,i})=>{
+    const km=`${esc(it.kmIni||'—')} → ${esc(it.kmFim||'—')}`;
+    const medCel=`<input class="med-inp" type="number" min="1" value="${it.medicao!=null&&it.medicao!==''?esc(String(it.medicao)):''}" placeholder="—" onchange="setRevMedInline(${i}, this.value)" title="Digite a medição — a situação vira Concluído">`;
+    return `<tr><td class="muted">${i+1}</td><td>${km}</td><td class="sup" style="max-width:320px">${esc(it.justificativa||'—')}</td><td>${seloSit(sitEfetivaHoriz(it))}</td><td>${esc(it.dataConclusao||'—')}</td><td>${medCel}</td></tr>`;
+  }).join('');
+}
+function setRevMedInline(idx, val){
+  const def=manualDefs[revAtual]; if(!def||!def.itens[idx]) return;
+  val=String(val).trim();
+  def.itens[idx].medicao = (val===''||Number(val)<=0) ? '' : val;
+  nuvemEnviar([{frente:"__nota__", ns:revAtual, item:"meta", obs: JSON.stringify(def)}]);
+  renderRevNS();
+}
 function setMedicaoHoriz(idx, val){
   if(!horizMedicoes[horizAtual]) horizMedicoes[horizAtual]={};
   val=String(val).trim();
@@ -1503,8 +1650,25 @@ const CAMPOS_NOTA = {
     {k:"situacao", t:"Situação", tipo:"select", opcoes:["Aguardando","Iniciado"], w:104},
     {k:"dataConclusao", t:"Data conclusão", ph:"dd/mm/aa", w:104},
   ]},
+  revisao: { cols:[
+    {k:"kmIni", t:"km inicial", ph:"10+000", w:92},
+    {k:"kmFim", t:"km final", ph:"12+000", w:92},
+    {k:"justificativa", t:"Justificativa", ph:"motivo/observação da revisão"},
+    {k:"situacao", t:"Situação", tipo:"select", opcoes:["Aguardando","Iniciado"], w:104},
+    {k:"dataConclusao", t:"Data conclusão", ph:"dd/mm/aa", w:104},
+  ]},
 };
 function sitEfetivaHoriz(it){ return String((it&&it.medicao)||'').trim()!=='' ? 'Concluído' : ((it&&it.situacao)||'Aguardando'); }
+/* selo colorido por situação (reutilizado em horizontal e revisão) */
+function seloSit(sit){ const cls=sit==='Concluído'?'b-verde':(sit==='Iniciado'?'b-amarelo':'b-cinza'); return `<span class="badge ${cls}">${esc(sit)}</span>`; }
+/* situação agregada de uma NS (por itens): Concluído se todos medidos; Iniciado se algum progresso; senão Aguardando */
+function statusNSItens(itens){
+  const its=itens||[]; if(!its.length) return 'Aguardando';
+  const conc=its.filter(it=>String((it&&it.medicao)||'').trim()!=='').length;
+  if(conc===its.length) return 'Concluído';
+  if(conc>0 || its.some(it=>it&&it.situacao==='Iniciado')) return 'Iniciado';
+  return 'Aguardando';
+}
 let notaFrente="defensa", notaEditId=null, notaLinhas=[];
 function abrirNota(frente, editId){
   notaEditId = editId||null;
@@ -1548,7 +1712,7 @@ function salvarNota(){
   const dataNS=(document.getElementById("notaData").value||"").trim();
   if(!rodovia){ toast("Informe a rodovia"); return; }
   const cols=CAMPOS_NOTA[notaFrente].cols;
-  const itens=notaLinhas.map(ln=>{ const o=Object.assign({}, ln); cols.forEach(c=>{ o[c.k]=(ln[c.k]!=null?String(ln[c.k]).trim():""); }); if(notaFrente==="horizontal" && o.medicao==null) o.medicao=""; return o; })
+  const itens=notaLinhas.map(ln=>{ const o=Object.assign({}, ln); cols.forEach(c=>{ o[c.k]=(ln[c.k]!=null?String(ln[c.k]).trim():""); }); if((notaFrente==="horizontal"||notaFrente==="revisao") && o.medicao==null) o.medicao=""; return o; })
     .filter(o=> cols.some(c=> o[c.k]!==""));
   if(!itens.length){ toast("Adicione ao menos um item preenchido"); return; }
   const id = notaEditId || ("man_"+notaFrente+"_"+Date.now());
@@ -1558,7 +1722,7 @@ function salvarNota(){
   nuvemEnviar([{frente:"__nota__", ns:id, item:"meta", obs: JSON.stringify(def)}]);
   document.getElementById("dlgNota").close();
   toast(notaEditId? "NS manual atualizada" : "NS manual cadastrada");
-  if(notaFrente==="vertical") viewVertical(); else if(notaFrente==="defensa") viewDefensas(); else viewHorizontal();
+  if(notaFrente==="vertical") viewVertical(); else if(notaFrente==="defensa") viewDefensas(); else if(notaFrente==="revisao") viewRevisao(); else viewHorizontal();
 }
 function editarNota(id){ abrirNota(null, id); }
 function excluirNota(id){
@@ -1568,7 +1732,7 @@ function excluirNota(id){
   removerNotaManualLocal(id);
   try{ document.getElementById("dlgNota").close(); }catch(e){}
   toast("NS manual excluída");
-  if(frente==="vertical") viewVertical(); else if(frente==="defensa") viewDefensas(); else if(frente==="horizontal") viewHorizontal(); else viewHome();
+  if(frente==="vertical") viewVertical(); else if(frente==="defensa") viewDefensas(); else if(frente==="horizontal") viewHorizontal(); else if(frente==="revisao") viewRevisao(); else viewHome();
 }
 
 /* ================= RELATÓRIOS (registro + link do Drive) ================= */
