@@ -245,7 +245,7 @@
 </dialog>
 
 <dialog id="dlgNSauto">
-  <div class="dlg-h">Gerar NS automática — Legendas <span class="x" onclick="dlgNSauto.close()">×</span></div>
+  <div class="dlg-h">Gerar prévia de NS — Legendas <span class="x" onclick="dlgNSauto.close()">×</span></div>
   <div class="dlg-b">
     <p class="muted" style="margin-top:0;font-size:13px">Envie o <b>CSV do levantamento</b> (exportado pelo app de campo de sinalização horizontal). O painel cruza com o projeto, separa o que está <b>Desgastado + Inexistente</b> em <b>Termoplástico por Extrusão</b> e gera a <b>NS em Excel</b>.</p>
     <label>Levantamento de campo (.csv)</label>
@@ -1484,7 +1484,7 @@ function viewHorizontal(){
   const totMed = horizManifest.reduce((s,m)=>s+statHoriz(m.id).medidas,0);
   document.getElementById("view").innerHTML = `
     <div class="pagehd"><div><h2>Sinalização Horizontal</h2><div class="sb">Notas de serviço cadastradas manualmente</div></div>
-      <div style="margin-left:auto;display:flex;gap:8px"><button class="btn" onclick="abrirNSauto()">🤖 Gerar NS automática</button><button class="btn pri" onclick="abrirNota('horizontal')">+ Cadastrar NS manual</button></div></div>
+      <div style="margin-left:auto;display:flex;gap:8px"><button class="btn" onclick="abrirNSauto()">🤖 Gerar prévia de NS</button><button class="btn pri" onclick="abrirNota('horizontal')">+ Cadastrar NS manual</button></div></div>
     <div class="stat">
       <div><div class="n">${horizManifest.length}</div><div class="l">Notas de serviço</div></div>
       <div><div class="n">${totI}</div><div class="l">Serviços</div></div>
