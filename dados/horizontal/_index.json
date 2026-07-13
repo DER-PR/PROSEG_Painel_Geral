@@ -1,0 +1,212 @@
+[
+{
+"slug": "pr-090",
+"rodovia": "PR-090",
+"nItens": 368,
+"nTE": 111,
+"nPF": 257
+},
+{
+"slug": "pr-092",
+"rodovia": "PR-092",
+"nItens": 496,
+"nTE": 272,
+"nPF": 175
+},
+{
+"slug": "pr-151",
+"rodovia": "PR-151",
+"nItens": 330,
+"nTE": 164,
+"nPF": 88
+},
+{
+"slug": "pr-170",
+"rodovia": "PR-170",
+"nItens": 110,
+"nTE": 60,
+"nPF": 50
+},
+{
+"slug": "pr-281-t1",
+"rodovia": "PR-281 (T1)",
+"nItens": 253,
+"nTE": 110,
+"nPF": 133
+},
+{
+"slug": "pr-281-t2",
+"rodovia": "PR-281 (T2)",
+"nItens": 24,
+"nTE": 12,
+"nPF": 12
+},
+{
+"slug": "pr-340",
+"rodovia": "PR-340",
+"nItens": 20,
+"nTE": 10,
+"nPF": 5
+},
+{
+"slug": "pr-410",
+"rodovia": "PR-410",
+"nItens": 53,
+"nTE": 30,
+"nPF": 18
+},
+{
+"slug": "pr-412",
+"rodovia": "PR-412",
+"nItens": 1513,
+"nTE": 848,
+"nPF": 665
+},
+{
+"slug": "pr-415",
+"rodovia": "PR-415",
+"nItens": 902,
+"nTE": 267,
+"nPF": 635
+},
+{
+"slug": "pr-417",
+"rodovia": "PR-417",
+"nItens": 899,
+"nTE": 484,
+"nPF": 415
+},
+{
+"slug": "pr-419",
+"rodovia": "PR-419",
+"nItens": 36,
+"nTE": 26,
+"nPF": 10
+},
+{
+"slug": "pr-420",
+"rodovia": "PR-420",
+"nItens": 11,
+"nTE": 6,
+"nPF": 5
+},
+{
+"slug": "pr-427",
+"rodovia": "PR-427",
+"nItens": 96,
+"nTE": 68,
+"nPF": 28
+},
+{
+"slug": "pr-446",
+"rodovia": "PR-446",
+"nItens": 58,
+"nTE": 22,
+"nPF": 17
+},
+{
+"slug": "pr-447",
+"rodovia": "PR-447",
+"nItens": 33,
+"nTE": 23,
+"nPF": 10
+},
+{
+"slug": "pr-506",
+"rodovia": "PR-506",
+"nItens": 276,
+"nTE": 171,
+"nPF": 105
+},
+{
+"slug": "pr-509",
+"rodovia": "PR-509",
+"nItens": 36,
+"nTE": 16,
+"nPF": 20
+},
+{
+"slug": "pr-510",
+"rodovia": "PR-510",
+"nItens": 183,
+"nTE": 106,
+"nPF": 75
+},
+{
+"slug": "pr-800",
+"rodovia": "PR-800",
+"nItens": 53,
+"nTE": 33,
+"nPF": 20
+},
+{
+"slug": "pr-802",
+"rodovia": "PR-802",
+"nItens": 49,
+"nTE": 29,
+"nPF": 20
+},
+{
+"slug": "pr-807",
+"rodovia": "PR-807",
+"nItens": 16,
+"nTE": 8,
+"nPF": 8
+},
+{
+"slug": "pr-831",
+"rodovia": "PR-831",
+"nItens": 33,
+"nTE": 17,
+"nPF": 16
+},
+{
+"slug": "pr-835",
+"rodovia": "PR-835",
+"nItens": 24,
+"nTE": 11,
+"nPF": 11
+},
+{
+"slug": "pr-836",
+"rodovia": "PR-836",
+"nItens": 18,
+"nTE": 6,
+"nPF": 12
+},
+{
+"slug": "pr-838",
+"rodovia": "PR-838",
+"nItens": 37,
+"nTE": 22,
+"nPF": 15
+},
+{
+"slug": "prc-280-t1",
+"rodovia": "PRC-280 (T1)",
+"nItens": 24,
+"nTE": 9,
+"nPF": 15
+},
+{
+"slug": "prc-280-t2",
+"rodovia": "PRC-280 (T2)",
+"nItens": 72,
+"nTE": 24,
+"nPF": 48
+},
+{
+"slug": "prc-466",
+"rodovia": "PRC-466",
+"nItens": 11,
+"nTE": 7,
+"nPF": 4
+},
+{
+"slug": "prc-476",
+"rodovia": "PRC-476",
+"nItens": 84,
+"nTE": 37,
+"nPF": 47
+}
+]

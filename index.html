@@ -244,6 +244,22 @@
   </div>
 </dialog>
 
+<dialog id="dlgNSauto">
+  <div class="dlg-h">Gerar NS automática — Legendas <span class="x" onclick="dlgNSauto.close()">×</span></div>
+  <div class="dlg-b">
+    <p class="muted" style="margin-top:0;font-size:13px">Envie o <b>CSV do levantamento</b> (exportado pelo app de campo de sinalização horizontal). O painel cruza com o projeto, separa o que está <b>Desgastado + Inexistente</b> em <b>Termoplástico por Extrusão</b> e gera a <b>NS em Excel</b>.</p>
+    <label>Levantamento de campo (.csv)</label>
+    <input type="file" id="nsAutoFile" accept=".csv,text/csv" onchange="preLerNSauto()">
+    <label>Rodovia (projeto)</label>
+    <select id="nsAutoRod"></select>
+    <p class="muted" id="nsAutoInfo" style="font-size:12px;margin-bottom:0"></p>
+  </div>
+  <div class="dlg-f">
+    <button class="btn" onclick="dlgNSauto.close()">Cancelar</button>
+    <button class="btn pri" onclick="gerarNSAuto()">⬇ Gerar NS (Excel)</button>
+  </div>
+</dialog>
+
 <dialog id="dlgNota">
   <div class="dlg-h"><span id="dlgNotaTitulo">Cadastrar NS manual</span> <span class="x" onclick="dlgNota.close()">×</span></div>
   <div class="dlg-b">
@@ -1468,7 +1484,7 @@ function viewHorizontal(){
   const totMed = horizManifest.reduce((s,m)=>s+statHoriz(m.id).medidas,0);
   document.getElementById("view").innerHTML = `
     <div class="pagehd"><div><h2>Sinalização Horizontal</h2><div class="sb">Notas de serviço cadastradas manualmente</div></div>
-      <div style="margin-left:auto"><button class="btn pri" onclick="abrirNota('horizontal')">+ Cadastrar NS manual</button></div></div>
+      <div style="margin-left:auto;display:flex;gap:8px"><button class="btn" onclick="abrirNSauto()">🤖 Gerar NS automática</button><button class="btn pri" onclick="abrirNota('horizontal')">+ Cadastrar NS manual</button></div></div>
     <div class="stat">
       <div><div class="n">${horizManifest.length}</div><div class="l">Notas de serviço</div></div>
       <div><div class="n">${totI}</div><div class="l">Serviços</div></div>
@@ -1492,6 +1508,93 @@ function renderListaHoriz(){
     const resumo=[servs,mats].filter(Boolean).join(' / ');
     return `<tr class="nsrow" onclick="viewHorizNS('${m.id}')"><td><b>${esc(m.rodovia)}</b>${resumo?` <span class="muted" style="font-weight:500">/ ${esc(resumo)}</span>`:''}</td><td style="text-align:right">${m.nItens}</td><td>${seloSit(statusNSItens(its))}</td></tr>`;
   }).join('');
+}
+/* ---------- NS automática de legendas (cruza levantamento de campo x projeto) ---------- */
+let nsAutoIndex=null;
+async function abrirNSauto(){
+  const sel=document.getElementById("nsAutoRod");
+  if(!nsAutoIndex){
+    try{ nsAutoIndex=await (await fetch("dados/horizontal/_index.json",{cache:"no-store"})).json(); }
+    catch(e){ toast("Não consegui carregar a lista de projetos"); return; }
+  }
+  sel.innerHTML=nsAutoIndex.map(r=>`<option value="${r.slug}">${esc(r.rodovia)} — ${r.nTE} itens de extrusão</option>`).join('');
+  document.getElementById("nsAutoFile").value="";
+  document.getElementById("nsAutoInfo").textContent="";
+  document.getElementById("dlgNSauto").showModal();
+}
+function preLerNSauto(){
+  const f=document.getElementById("nsAutoFile").files[0]; if(!f||!nsAutoIndex) return;
+  const nome=f.name.toUpperCase(); let best=null;
+  nsAutoIndex.forEach(r=>{
+    const tks=r.rodovia.toUpperCase().replace(/[()]/g,'').split(/[\s\-]+/).filter(Boolean);
+    if(tks.every(t=>nome.includes(t)) && (!best || r.rodovia.length>best.rodovia.length)) best=r;
+  });
+  if(best) document.getElementById("nsAutoRod").value=best.slug;
+  document.getElementById("nsAutoInfo").textContent = best? ("Rodovia detectada: "+best.rodovia) : "Não identifiquei a rodovia pelo nome do arquivo — selecione na lista.";
+}
+async function gerarNSAuto(){
+  const f=document.getElementById("nsAutoFile").files[0];
+  const slug=document.getElementById("nsAutoRod").value;
+  const info=document.getElementById("nsAutoInfo");
+  if(!f){ toast("Selecione o CSV do levantamento"); return; }
+  if(!slug){ toast("Selecione a rodovia"); return; }
+  info.textContent="Gerando…";
+  let proj;
+  try{ proj=await (await fetch("dados/horizontal/"+slug+".json",{cache:"no-store"})).json(); }
+  catch(e){ toast("Não achei o projeto dessa rodovia"); info.textContent=""; return; }
+  let txt; try{ txt=await f.text(); }catch(e){ toast("Não consegui abrir o arquivo"); info.textContent=""; return; }
+  let linhas; try{ linhas=parseCSV(txt); }catch(e){ toast("Não consegui ler o CSV"); info.textContent=""; return; }
+  if(linhas.length<2){ toast("CSV sem dados"); info.textContent=""; return; }
+  const head=linhas[0].map(h=>String(h).trim().toLowerCase());
+  const iItem=head.findIndex(h=>h==='item');
+  const iEst=head.findIndex(h=>h==='estado');
+  const iData=head.findIndex(h=>h.indexOf('data')>=0);
+  if(iItem<0||iEst<0){ toast("O CSV não tem as colunas Item/Estado"); info.textContent=""; return; }
+  const mapa={}; (proj.itens||[]).forEach(it=> mapa[String(it[0]).trim()]=it);
+  const EXEC={desgastada:1, inexistente:1};
+  const MATNOME="Termoplástico por Extrusão";
+  const dados=[]; let areaTot=0, nItens=0, semMatch=0, dataNS="";
+  for(let r=1;r<linhas.length;r++){
+    const row=linhas[r];
+    if(iData>=0 && !dataNS){ const m=String(row[iData]||'').match(/(\d{2}\/\d{2}\/\d{4})/); if(m) dataNS=m[1]; }
+    const est=String(row[iEst]||'').trim().toLowerCase();
+    if(!EXEC[est]) continue;
+    const it=mapa[String(row[iItem]||'').trim()];
+    if(!it){ semMatch++; continue; }
+    if(it[1]!=='TE') continue;
+    nItens++;
+    (it[2]||[]).forEach(d=>{
+      const area=Number(d[10])||0; areaTot+=area;
+      dados.push(["", d[0], d[1], d[2], d[3], String(d[4]).replace(/\./g,','), d[5], d[6], String(d[7]).replace(/\./g,','), d[8], MATNOME, d[9], area]);
+    });
+  }
+  if(!dados.length){ toast("Nenhum item Desgastado/Inexistente de Extrusão neste levantamento"); info.textContent=""; return; }
+  if(!dataNS){ const dt=new Date(); dataNS=String(dt.getDate()).padStart(2,'0')+'/'+String(dt.getMonth()+1).padStart(2,'0')+'/'+dt.getFullYear(); }
+  const rod=proj.rodovia||slug.toUpperCase();
+  const aoa=[
+    ["NOTA DE SERVIÇO - MARCAS DE CANALIZAÇÃO E INSCRIÇÕES NO PAVIMENTO","","","","","","","","","","","",""],
+    ["Rodovia: "+rod+"   Data: "+dataNS,"","","Contrato/Lote: 122/2021 - LOTE 1","","","","","","Empresa: Consórcio Mobilidade Sul","","",""],
+    ["Figura","Código","Descrição","Localização inicial","","","Localização final","","","Eixo","Material","Espessura (mm)","Área (m²)"],
+    ["","","","Coordenadas Geográficas","","km","Coordenadas Geográficas","","km","","","",""],
+    ["","","","Latitude","Longitude","","Latitude","Longitude","","","","",""]
+  ].concat(dados);
+  aoa.push(["","","","","","","","","","","","TOTAL", Math.round(areaTot*100)/100]);
+  const ws=XLSX.utils.aoa_to_sheet(aoa);
+  ws['!merges']=[
+    {s:{r:0,c:0},e:{r:0,c:12}},
+    {s:{r:1,c:0},e:{r:1,c:2}},{s:{r:1,c:3},e:{r:1,c:8}},{s:{r:1,c:9},e:{r:1,c:12}},
+    {s:{r:2,c:0},e:{r:4,c:0}},{s:{r:2,c:1},e:{r:4,c:1}},{s:{r:2,c:2},e:{r:4,c:2}},
+    {s:{r:2,c:3},e:{r:2,c:5}},{s:{r:2,c:6},e:{r:2,c:8}},
+    {s:{r:2,c:9},e:{r:4,c:9}},{s:{r:2,c:10},e:{r:4,c:10}},{s:{r:2,c:11},e:{r:4,c:11}},{s:{r:2,c:12},e:{r:4,c:12}},
+    {s:{r:3,c:3},e:{r:3,c:4}},{s:{r:3,c:5},e:{r:4,c:5}},{s:{r:3,c:6},e:{r:3,c:7}},{s:{r:3,c:8},e:{r:4,c:8}}
+  ];
+  ws['!cols']=[{wch:9},{wch:10},{wch:42},{wch:13},{wch:13},{wch:11},{wch:13},{wch:13},{wch:11},{wch:10},{wch:26},{wch:13},{wch:10}];
+  const wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, ("NS_"+rod).replace(/[^\w]/g,'_').substring(0,28));
+  const nomeArq=rod.replace(/[^\w-]/g,'_')+"_NS_"+dataNS.replace(/\//g,'.')+"_Extrusao.xlsx";
+  XLSX.writeFile(wb, nomeArq);
+  info.textContent="✓ Gerado — "+rod+": "+nItens+" itens · "+dados.length+" linhas · "+(Math.round(areaTot*100)/100).toLocaleString('pt-BR')+" m²"+(semMatch?(" · "+semMatch+" item(ns) do CSV sem correspondência no projeto"):"");
+  toast("NS gerada: "+nomeArq);
 }
 function viewHorizNS(id){
   horizAtual=id; horizFiltro="todas";
