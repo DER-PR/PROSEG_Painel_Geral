@@ -366,6 +366,7 @@ function salvarRel(){ localStorage.setItem(LS_REL, JSON.stringify(relatorios)); 
 
 /* ===== NS MANUAIS (definição guardada na nuvem, linha frente="__nota__") ===== */
 let manualDefs = {};        // idManual -> { frente, rodovia, dataNS, itens:[...] }
+let controleNS = {};        // nsId -> { assinada, enviada, cets, drive, relatorio }
 /* registra/atualiza uma NS manual nos manifests/caches da frente correspondente */
 function registrarNotaManual(id, def){
   manualDefs[id]=def;
@@ -376,13 +377,13 @@ function registrarNotaManual(id, def){
     manifest = manifest.filter(m=>m.id!==id);
     manifest.push({id, rodovia, trecho:"", dataNS, totalPlacas:itens.length, manual:true});
   } else if(def.frente==="defensa"){
-    defCache[id]={_id:id, rodovia, manual:true, itens};
+    defCache[id]={_id:id, rodovia, dataNS, manual:true, itens};
     defManifest = defManifest.filter(m=>m.id!==id);
-    defManifest.push({id, rodovia, nItens:itens.length, manual:true});
+    defManifest.push({id, rodovia, dataNS, nItens:itens.length, manual:true});
   } else if(def.frente==="horizontal"){
-    horizCache[id]={_id:id, rodovia, manual:true, itens};
+    horizCache[id]={_id:id, rodovia, dataNS, manual:true, itens};
     horizManifest = horizManifest.filter(m=>m.id!==id);
-    horizManifest.push({id, rodovia, nItens:itens.length, manual:true});
+    horizManifest.push({id, rodovia, dataNS, nItens:itens.length, manual:true});
   } else if(def.frente==="revisao"){
     revCache[id]={_id:id, rodovia, manual:true, itens};
     revManifest = revManifest.filter(m=>m.id!==id);
@@ -423,12 +424,14 @@ async function nuvemCarregar(){
   const linhas = j.dados||[];
   // 1ª passada: NS manuais (definição no obs) — registra antes das medições
   limparNotasManuais();
-  relatorios=[];
+  relatorios=[]; controleNS={};
   linhas.forEach(function(d){
     if(d.frente==="__nota__" && d.obs!==""&&d.obs!=null){
       try{ const def=JSON.parse(d.obs); if(def&&def.frente) registrarNotaManual(String(d.ns), def); }catch(e){}
     } else if(d.frente==="__relatorio__" && d.obs!==""&&d.obs!=null){
       try{ const r=JSON.parse(d.obs); r.id=String(d.ns); relatorios.push(r); }catch(e){}
+    } else if(d.frente==="__controle__" && d.obs!==""&&d.obs!=null){
+      try{ controleNS[String(d.ns)]=JSON.parse(d.obs); }catch(e){}
     }
   });
   relatorios.sort(function(a,b){ return String(b.data||'').localeCompare(String(a.data||'')); });
@@ -490,6 +493,7 @@ const NAV = [
   {grp:"Gestão do contrato", itens:[
     {id:"dashboard", t:"Dashboard", ic:"🏠", go:"viewDashboard()"},
     {id:"notas", t:"Notas de Serviço", ic:"📋", go:"viewHome()"},
+    {id:"controle", t:"Controle de NS", ic:"✅", go:"viewControleNS()"},
     {id:"medicoes", t:"Medições", ic:"📊", soon:true},
     {id:"relatorios", t:"Relatórios", ic:"📄", go:"viewRelatorios()"},
     {id:"financeiro", t:"Financeiro", ic:"💰", go:"viewFinanceiro()"},
@@ -1495,7 +1499,7 @@ function viewHorizontal(){
       <div><div class="n">${totI-totMed}</div><div class="l">Em aberto</div></div>
     </div>
     ${horizManifest.length? `<div class="toolbar"><input class="busca" id="buscaHoriz" placeholder="Buscar rodovia…" oninput="renderListaHoriz()"></div>
-    <table><thead><tr><th>Rodovia · Serviço · Material</th><th style="text-align:right">Serviços</th><th>Situação</th></tr></thead><tbody id="tbHoriz"></tbody></table>`
+    <table><thead><tr><th>Rodovia · Serviço · Material</th><th>Data da NS</th><th>Situação</th></tr></thead><tbody id="tbHoriz"></tbody></table>`
     : `<div class="empty">Nenhuma NS horizontal ainda.<br>Use <b>+ Cadastrar NS manual</b> para adicionar.</div>`}`;
   if(horizManifest.length) renderListaHoriz();
 }
@@ -1509,9 +1513,46 @@ function renderListaHoriz(){
     const servs=[...new Set(its.map(i=>i&&i.servico).filter(Boolean))].join(', ');
     const mats=[...new Set(its.map(i=>i&&i.material).filter(Boolean))].join(', ');
     const resumo=[servs,mats].filter(Boolean).join(' / ');
-    return `<tr class="nsrow" onclick="viewHorizNS('${m.id}')"><td><b>${esc(m.rodovia)}</b>${resumo?` <span class="muted" style="font-weight:500">/ ${esc(resumo)}</span>`:''}</td><td style="text-align:right">${m.nItens}</td><td>${seloSit(statusNSItens(its))}</td></tr>`;
+    return `<tr class="nsrow" onclick="viewHorizNS('${m.id}')"><td><b>${esc(m.rodovia)}</b>${resumo?` <span class="muted" style="font-weight:500">/ ${esc(resumo)}</span>`:''}</td><td class="muted">${m.dataNS?esc(m.dataNS):'—'}</td><td>${seloSit(statusNSItens(its))}</td></tr>`;
   }).join('');
 }
+/* ================= CONTROLE DE NS (acompanhamento administrativo) ================= */
+function todasNS(){
+  const out=[];
+  manifest.forEach(m=>out.push({id:m.id, frL:"Vertical", ic:"🚦", rodovia:m.rodovia, dataNS:m.dataNS||""}));
+  horizManifest.forEach(m=>out.push({id:m.id, frL:"Horizontal", ic:"🛣️", rodovia:m.rodovia, dataNS:m.dataNS||""}));
+  defManifest.forEach(m=>out.push({id:m.id, frL:"Dispositivos", ic:"🛡️", rodovia:m.rodovia, dataNS:m.dataNS||""}));
+  revManifest.forEach(m=>out.push({id:m.id, frL:"Revisão", ic:"📐", rodovia:m.rodovia, dataNS:m.dataNS||""}));
+  return out;
+}
+const CTRL_COLS=[["assinada","Assinada"],["enviada","Enviada"],["cets","Planilha CETS"],["drive","Drive"],["relatorio","Relatório"]];
+function viewControleNS(){
+  setNav("controle","Controle de NS");
+  setCrumbs([{t:"Dashboard", go:"viewDashboard()"},{t:"Controle de NS"}]);
+  const th=CTRL_COLS.map(c=>`<th style="text-align:center">${c[1]}</th>`).join('');
+  document.getElementById("view").innerHTML=`
+    <div class="pagehd"><div><h2>Controle de NS</h2><div class="sb">Acompanhamento administrativo de cada nota de serviço</div></div></div>
+    <div class="toolbar"><input class="busca" id="buscaCtrl" placeholder="Buscar rodovia ou frente…" oninput="renderControle()"></div>
+    <table><thead><tr><th>Frente</th><th>Rodovia</th><th>Data da NS</th>${th}</tr></thead><tbody id="tbCtrl"></tbody></table>`;
+  renderControle();
+}
+function renderControle(){
+  const q=(document.getElementById("buscaCtrl")?.value||"").toLowerCase().trim();
+  const lista=todasNS().filter(n=> !q || (n.rodovia+" "+n.frL).toLowerCase().includes(q));
+  const tb=document.getElementById("tbCtrl");
+  if(!lista.length){ tb.innerHTML=`<tr><td colspan="8" class="empty">Nenhuma NS encontrada.</td></tr>`; return; }
+  tb.innerHTML=lista.map(n=>{
+    const c=controleNS[n.id]||{};
+    const checks=CTRL_COLS.map(col=>`<td style="text-align:center"><input type="checkbox" ${c[col[0]]?'checked':''} onchange="setControle('${n.id}','${col[0]}',this.checked)"></td>`).join('');
+    return `<tr><td class="muted">${n.ic} ${esc(n.frL)}</td><td><b>${esc(n.rodovia)}</b></td><td class="muted">${n.dataNS?esc(n.dataNS):'—'}</td>${checks}</tr>`;
+  }).join('');
+}
+function setControle(id, campo, val){
+  if(!controleNS[id]) controleNS[id]={};
+  controleNS[id][campo]=!!val;
+  nuvemEnviar([{frente:"__controle__", ns:id, item:"meta", obs: JSON.stringify(controleNS[id])}]);
+}
+
 /* ---------- NS automática de legendas (cruza levantamento de campo x projeto) ---------- */
 let nsAutoIndex=null;
 async function abrirNSauto(){
