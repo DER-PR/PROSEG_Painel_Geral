@@ -368,6 +368,7 @@ function salvarRel(){ localStorage.setItem(LS_REL, JSON.stringify(relatorios)); 
 /* ===== NS MANUAIS (definição guardada na nuvem, linha frente="__nota__") ===== */
 let manualDefs = {};        // idManual -> { frente, rodovia, dataNS, itens:[...] }
 let controleNS = {};        // nsId -> { assinada, enviada, cets, drive, relatorio }
+let datasNS = {};           // nsId -> "dd/mm/aaaa" (data manual p/ NS importadas, ex.: defensas)
 /* registra/atualiza uma NS manual nos manifests/caches da frente correspondente */
 function registrarNotaManual(id, def){
   manualDefs[id]=def;
@@ -425,7 +426,7 @@ async function nuvemCarregar(){
   const linhas = j.dados||[];
   // 1ª passada: NS manuais (definição no obs) — registra antes das medições
   limparNotasManuais();
-  relatorios=[]; controleNS={};
+  relatorios=[]; controleNS={}; datasNS={};
   linhas.forEach(function(d){
     if(d.frente==="__nota__" && d.obs!==""&&d.obs!=null){
       try{ const def=JSON.parse(d.obs); if(def&&def.frente) registrarNotaManual(String(d.ns), def); }catch(e){}
@@ -433,6 +434,8 @@ async function nuvemCarregar(){
       try{ const r=JSON.parse(d.obs); r.id=String(d.ns); relatorios.push(r); }catch(e){}
     } else if(d.frente==="__controle__" && d.obs!==""&&d.obs!=null){
       try{ controleNS[String(d.ns)]=JSON.parse(d.obs); }catch(e){}
+    } else if(d.frente==="__datans__" && d.obs!==""&&d.obs!=null){
+      datasNS[String(d.ns)]=String(d.obs).trim();
     }
   });
   relatorios.sort(function(a,b){ return String(b.data||'').localeCompare(String(a.data||'')); });
@@ -1406,7 +1409,8 @@ function renderListaDef(){
     const s=statDef(m.id);
     const cor = s.pct===100?'var(--verde)':(s.medidas===0?'var(--cinza)':'var(--azul)');
     const andam=`<div style="display:flex;align-items:center;gap:8px;min-width:160px"><div class="prog" style="flex:1"><i style="width:${s.pct}%"></i></div><span style="white-space:nowrap"><b>${s.total}/${s.medidas}</b> <span style="color:${cor};font-weight:600">(${s.pct}%)</span></span></div>`;
-    return `<tr class="nsrow" onclick="viewDefNS('${m.id}')"><td><b>${esc(m.rodovia)}</b>${m.manual?' <span class="badge b-azul" title="Cadastrada manualmente">manual</span>':''}</td><td class="muted">${m.dataNS?esc(m.dataNS):'—'}</td><td style="text-align:right">${m.nItens}</td><td>${andam}</td></tr>`;
+    const dNS=datasNS[m.id]||m.dataNS||'';
+    return `<tr class="nsrow" onclick="viewDefNS('${m.id}')"><td><b>${esc(m.rodovia)}</b>${m.manual?' <span class="badge b-azul" title="Cadastrada manualmente">manual</span>':''}</td><td class="muted">${dNS?esc(dNS):'—'}</td><td style="text-align:right">${m.nItens}</td><td>${andam}</td></tr>`;
   }).join('');
 }
 async function viewDefNS(id){
@@ -1432,6 +1436,9 @@ function renderDefNS(){
       ${acoes}
     </div>
     <div class="hint">Cada linha é um <b>tramo</b> de defensa. Registre a medição importando a aba <b>DISP. SEGURANÇA</b> da sua planilha, ou digitando o número na coluna <b>Medição</b>.</div>
+    ${!ns.manual? `<div class="toolbar" style="align-items:center"><label style="font-weight:600;font-size:13px;margin:0">📅 Data da NS:</label>
+      <input class="busca" style="max-width:150px" id="defDataInp" value="${esc(datasNS[defAtual]||'')}" placeholder="dd/mm/aaaa" onchange="setDataNSDef('${defAtual}', this.value)">
+      <span class="muted" style="font-size:12px">salva automaticamente na nuvem</span></div>` : ''}
     <div class="toolbar">${pills.join('')}</div>
     <table>
       <thead><tr><th style="width:44px">#</th><th>Tramo</th><th>km (início → fim)</th><th>Lado</th><th style="text-align:right">Compr. (m)</th><th>Modelo</th><th>Terminais (ent. / saída)</th><th style="width:110px">Medição</th></tr></thead>
@@ -1525,7 +1532,7 @@ function todasNS(){
   const out=[];
   manifest.forEach(m=>out.push({id:m.id, frL:"Vertical", ic:"🚦", rodovia:m.rodovia, dataNS:m.dataNS||""}));
   horizManifest.forEach(m=>out.push({id:m.id, frL:"Horizontal", ic:"🛣️", rodovia:m.rodovia, dataNS:m.dataNS||""}));
-  defManifest.forEach(m=>out.push({id:m.id, frL:"Dispositivos", ic:"🛡️", rodovia:m.rodovia, dataNS:m.dataNS||""}));
+  defManifest.forEach(m=>out.push({id:m.id, frL:"Dispositivos", ic:"🛡️", rodovia:m.rodovia, dataNS:datasNS[m.id]||m.dataNS||""}));
   revManifest.forEach(m=>out.push({id:m.id, frL:"Revisão", ic:"📐", rodovia:m.rodovia, dataNS:m.dataNS||""}));
   return out;
 }
@@ -1555,6 +1562,14 @@ function setControle(id, campo, val){
   if(!controleNS[id]) controleNS[id]={};
   controleNS[id][campo]=!!val;
   nuvemEnviar([{frente:"__controle__", ns:id, item:"meta", obs: JSON.stringify(controleNS[id])}]);
+}
+/* define/edita a Data da NS (para NS importadas, ex.: defensas) — salva na nuvem */
+function setDataNSDef(id, val){
+  val=(val||'').trim();
+  if(val) datasNS[id]=val; else delete datasNS[id];
+  const m=defManifest.find(x=>x.id===id); if(m) m.dataNS=val;   // reflete na lista sem recarregar
+  nuvemEnviar([{frente:"__datans__", ns:id, item:"meta", obs: val}]);
+  toast(val?("Data da NS salva: "+val):"Data da NS removida");
 }
 
 /* ================= VALIDADES — SINALIZAÇÃO HORIZONTAL ================= */
