@@ -1392,7 +1392,7 @@ function viewDefensas(){
       <input class="busca" id="buscaDef" placeholder="Buscar rodovia…" oninput="renderListaDef()">
     </div>
     <table>
-      <thead><tr><th>Rodovia</th><th style="text-align:right">Tramos</th><th>Andamento</th></tr></thead>
+      <thead><tr><th>Rodovia</th><th>Data da NS</th><th style="text-align:right">Tramos</th><th>Andamento</th></tr></thead>
       <tbody id="tbDef"></tbody>
     </table>`;
   renderListaDef();
@@ -1401,12 +1401,12 @@ function renderListaDef(){
   const q=(document.getElementById("buscaDef")?.value||"").toLowerCase().trim();
   const tb=document.getElementById("tbDef");
   const list=defManifest.filter(m=> !q || m.rodovia.toLowerCase().includes(q));
-  if(!list.length){ tb.innerHTML=`<tr><td colspan="3" class="empty">Nenhuma rodovia.</td></tr>`; return; }
+  if(!list.length){ tb.innerHTML=`<tr><td colspan="4" class="empty">Nenhuma rodovia.</td></tr>`; return; }
   tb.innerHTML=list.map(m=>{
     const s=statDef(m.id);
     const cor = s.pct===100?'var(--verde)':(s.medidas===0?'var(--cinza)':'var(--azul)');
     const andam=`<div style="display:flex;align-items:center;gap:8px;min-width:160px"><div class="prog" style="flex:1"><i style="width:${s.pct}%"></i></div><span style="white-space:nowrap"><b>${s.total}/${s.medidas}</b> <span style="color:${cor};font-weight:600">(${s.pct}%)</span></span></div>`;
-    return `<tr class="nsrow" onclick="viewDefNS('${m.id}')"><td><b>${esc(m.rodovia)}</b>${m.manual?' <span class="badge b-azul" title="Cadastrada manualmente">manual</span>':''}</td><td style="text-align:right">${m.nItens}</td><td>${andam}</td></tr>`;
+    return `<tr class="nsrow" onclick="viewDefNS('${m.id}')"><td><b>${esc(m.rodovia)}</b>${m.manual?' <span class="badge b-azul" title="Cadastrada manualmente">manual</span>':''}</td><td class="muted">${m.dataNS?esc(m.dataNS):'—'}</td><td style="text-align:right">${m.nItens}</td><td>${andam}</td></tr>`;
   }).join('');
 }
 async function viewDefNS(id){
@@ -1508,7 +1508,9 @@ function viewHorizontal(){
 function renderListaHoriz(){
   const q=(document.getElementById("buscaHoriz")?.value||"").toLowerCase().trim();
   const tb=document.getElementById("tbHoriz");
-  const list=horizManifest.filter(m=> !q || m.rodovia.toLowerCase().includes(q));
+  const dkey=m=>{ const d=valParse(m.dataNS); return d?d.getTime():Infinity; };  // sem data vai pro fim
+  const list=horizManifest.filter(m=> !q || m.rodovia.toLowerCase().includes(q))
+    .sort((a,b)=> (dkey(a)-dkey(b)) || a.rodovia.localeCompare(b.rodovia,'pt'));
   if(!list.length){ tb.innerHTML=`<tr><td colspan="3" class="empty">Nenhuma rodovia.</td></tr>`; return; }
   tb.innerHTML=list.map(m=>{
     const its=(horizCache[m.id]&&horizCache[m.id].itens)||[];
