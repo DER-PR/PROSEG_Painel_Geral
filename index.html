@@ -264,6 +264,22 @@
   </div>
 </dialog>
 
+<dialog id="dlgNSautoDef">
+  <div class="dlg-h">Gerar prévia de NS — Defensas <span class="x" onclick="dlgNSautoDef.close()">×</span></div>
+  <div class="dlg-b">
+    <p class="muted" style="margin-top:0;font-size:13px">Envie a sua <b>planilha de projeto de defensas</b> (Defensas Metálicas) e o <b>arquivo do levantamento</b> (.csv) exportado pelo app de campo. O painel casa pelo <b>Tramo</b> e preenche as colunas do levantamento (Situação · Lâminas (m) · Terminal entrada · Terminal saída · Fotos) em cada linha, preservando o projeto.</p>
+    <label>Planilha de projeto de defensas (.xlsx)</label>
+    <input type="file" id="nsAutoDefBase" accept=".xlsx" onchange="preLerNSautoDef()">
+    <label>Levantamento de campo (.csv)</label>
+    <input type="file" id="nsAutoDefFile" accept=".csv,text/csv" onchange="preLerNSautoDef()">
+    <p class="muted" id="nsAutoDefInfo" style="font-size:12px;margin-bottom:0"></p>
+  </div>
+  <div class="dlg-f">
+    <button class="btn" onclick="dlgNSautoDef.close()">Cancelar</button>
+    <button class="btn pri" onclick="gerarNSAutoDef()">⬇ Gerar prévia (Excel)</button>
+  </div>
+</dialog>
+
 <dialog id="dlgNota">
   <div class="dlg-h"><span id="dlgNotaTitulo">Cadastrar NS manual</span> <span class="x" onclick="dlgNota.close()">×</span></div>
   <div class="dlg-b">
@@ -1395,6 +1411,7 @@ function viewDefensas(){
     </div>
     <div class="toolbar">
       <input class="busca" id="buscaDef" placeholder="Buscar rodovia…" oninput="renderListaDef()">
+      <button class="btn" onclick="abrirNSautoDef()">🤖 Gerar prévia de NS</button>
     </div>
     <table>
       <thead><tr><th>Rodovia</th><th>Data da NS</th><th style="text-align:right">Tramos</th><th>Andamento</th></tr></thead>
@@ -1796,6 +1813,116 @@ async function preencherBaseZip(zip, map){
   zip.file(sp, xml);
   if(styles) zip.file("xl/styles.xml", styles);
   return {preench, ndados};
+}
+
+/* ===== prévia de NS de DEFENSAS: casa por Tramo, preenche colunas no projeto ===== */
+function abrirNSautoDef(){
+  document.getElementById("nsAutoDefBase").value="";
+  document.getElementById("nsAutoDefFile").value="";
+  document.getElementById("nsAutoDefInfo").textContent="";
+  document.getElementById("dlgNSautoDef").showModal();
+}
+function preLerNSautoDef(){
+  const fb=document.getElementById("nsAutoDefBase").files[0];
+  const fc=document.getElementById("nsAutoDefFile").files[0];
+  const nomes=[fb&&fb.name, fc&&fc.name].filter(Boolean).join(" · ");
+  document.getElementById("nsAutoDefInfo").textContent = nomes? ("Arquivos: "+nomes) : "";
+}
+function montarMapaDef(csvTxt){
+  const linhas=parseCSV(csvTxt);
+  const head=linhas[0].map(h=>String(h).trim().toLowerCase());
+  const iTr=head.findIndex(h=>h==='tramo');
+  const iSit=head.findIndex(h=>h.indexOf('situa')>=0);
+  const iLam=head.findIndex(h=>h.indexOf('mina')>=0);
+  const iTE=head.findIndex(h=>h.indexOf('entrada')>=0);
+  const iTS=head.findIndex(h=>h.indexOf('sa')>=0 && h.indexOf('da')>=0);
+  const iFo=head.findIndex(h=>h.indexOf('foto')>=0);
+  if(iTr<0||iSit<0) throw new Error("CSV sem colunas Tramo/Situação");
+  const mp={};
+  for(let r=1;r<linhas.length;r++){ const row=linhas[r]; const tr=String(row[iTr]||'').trim(); if(!tr) continue;
+    mp[tr]=[ String(row[iSit]||'').trim(), iLam>=0?String(row[iLam]||'').trim():'', iTE>=0?String(row[iTE]||'').trim():'', iTS>=0?String(row[iTS]||'').trim():'', iFo>=0?String(row[iFo]||'').trim():'' ]; }
+  return mp;
+}
+async function gerarNSAutoDef(){
+  const fBase=document.getElementById("nsAutoDefBase").files[0];
+  const fCsv=document.getElementById("nsAutoDefFile").files[0];
+  const info=document.getElementById("nsAutoDefInfo");
+  if(!fBase){ toast("Selecione a planilha de projeto (.xlsx)"); return; }
+  if(!fCsv){ toast("Selecione o CSV do levantamento"); return; }
+  if(typeof JSZip==='undefined'){ toast("Biblioteca indisponível (sem internet?)"); return; }
+  info.textContent="Gerando… aguarde alguns segundos.";
+  try{
+    const map=montarMapaDef(await fCsv.text());
+    const zip=await JSZip.loadAsync(await fBase.arrayBuffer());
+    const res=await preencherProjetoDefZip(zip, map);
+    const blob=await zip.generateAsync({type:"blob",compression:"DEFLATE"});
+    const nome=(fBase.name||"defensas").replace(/\.xlsx$/i,"")+" - com LEVANTAMENTO.xlsx";
+    const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=nome;
+    document.body.appendChild(a); a.click(); setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); },1500);
+    info.textContent="✓ Gerado — "+res.preench+" de "+res.ndados+" tramos preenchidos"+(res.semMatch?(" · "+res.semMatch+" tramo(s) do CSV sem correspondência"):"");
+    toast("Prévia gerada: "+nome);
+  }catch(e){ console.error(e); info.textContent="Erro: "+((e&&e.message)||e); toast("Falha ao gerar a prévia"); }
+}
+async function preencherProjetoDefZip(zip, map){
+  const paths=[]; zip.forEach(p=>{ if(/^xl\/worksheets\/sheet\d+\.xml$/.test(p)) paths.push(p); });
+  if(!paths.length) throw new Error("planilha sem worksheet");
+  let sp=paths[0], xml=await zip.file(paths[0]).async("string");
+  for(const p of paths){ const s=await zip.file(p).async("string"); if(s.length>xml.length){ xml=s; sp=p; } }
+  const sst=parseSST(zip.file("xl/sharedStrings.xml")?await zip.file("xl/sharedStrings.xml").async("string"):"");
+  let tblPath=null; zip.forEach(p=>{ if(/^xl\/tables\/table\d+\.xml$/.test(p)&&!tblPath) tblPath=p; });
+  let tblXml=tblPath?await zip.file(tblPath).async("string"):"";
+
+  const rows={}; let rm; const rre=/<row ([^>]*?)>([\s\S]*?)<\/row>/g;
+  while((rm=rre.exec(xml))){ const rn=parseInt((rm[1].match(/r="(\d+)"/)||[])[1],10); if(rn) rows[rn]=celulasDaLinha(rm[2]); }
+  const val=(rn,col)=> (rows[rn]&&rows[rn][col])? cellText(rows[rn][col],sst) : '';
+
+  let HDR=0, colTramo='C';
+  for(let r=1;r<=12 && !HDR;r++){ for(const c in (rows[r]||{})){ if(/^tramo$/i.test(cellText(rows[r][c],sst).trim())){ HDR=r; colTramo=c; break; } } }
+  if(!HDR) throw new Error("não achei a coluna 'Tramo' no cabeçalho da planilha");
+  let lastIdx=colIdx(colTramo);
+  for(const c in rows[HDR]){ if(cellText(rows[HDR][c],sst).trim()!==''){ const idx=colIdx(c); if(idx>lastIdx) lastIdx=idx; } }
+  const colLast=colLetra(lastIdx), DSTART=HDR+4;
+
+  const NOVAS=["Situação","Lâminas (m)","Terminal de entrada","Terminal de saída","Fotos"];
+  const nc=NOVAS.map((_,i)=>colLetra(lastIdx+1+i));
+  const colFim=nc[nc.length-1];
+
+  const headerS=(xml.match(new RegExp('<c r="'+colLast+HDR+'"[^>]*?\\ss="(\\d+)"'))||[])[1]||'0';
+  const header8S=(xml.match(new RegExp('<c r="'+colLast+(HDR+3)+'"[^>]*?\\ss="(\\d+)"'))||[])[1]||'0';
+  let firstData=DSTART; for(let r=DSTART;r<DSTART+5000;r++){ if(rows[r]&&val(r,colTramo)){ firstData=r; break; } }
+  const dataS=(xml.match(new RegExp('<c r="'+colLast+firstData+'"[^>]*?\\ss="(\\d+)"'))||[])[1]||'0';
+  let tblCnt=0; if(tblXml){ tblCnt=parseInt((tblXml.match(/<tableColumns count="(\d+)"/)||[])[1]||'0',10); }
+
+  let preench=0, ndados=0; const usados={};
+  function novas(rn){
+    if(rn===HDR) return NOVAS.map((t,i)=>'<c r="'+nc[i]+HDR+'" s="'+headerS+'" t="inlineStr"><is><t>'+xmlEsc(t)+'</t></is></c>').join('');
+    if(rn===HDR+1||rn===HDR+2) return nc.map(c=>'<c r="'+c+rn+'" s="'+headerS+'"/>').join('');
+    if(rn===HDR+3 && tblXml) return nc.map((c,i)=>'<c r="'+c+rn+'" s="'+header8S+'" t="inlineStr"><is><t>Coluna'+(tblCnt+1+i)+'</t></is></c>').join('');
+    if(rn>=DSTART && rows[rn] && val(rn,colTramo)){
+      ndados++;
+      const ef=map[String(val(rn,colTramo)).trim()]; if(!ef) return '';
+      usados[String(val(rn,colTramo)).trim()]=1; preench++;
+      return ef.map((v,i)=> (v!==''&&v!=null)? ('<c r="'+nc[i]+rn+'" s="'+dataS+'" t="inlineStr"><is><t>'+xmlEsc(v)+'</t></is></c>') : '').join('');
+    }
+    return '';
+  }
+  xml=xml.replace(/<row ([^>]*?)>([\s\S]*?)<\/row>/g, (m,attrs,inner)=>{
+    const rn=parseInt((attrs.match(/r="(\d+)"/)||[])[1],10);
+    const add=novas(rn); if(!add) return m;
+    attrs=attrs.replace(/spans="(\d+):(\d+)"/, (s,a,b)=>'spans="'+a+':'+Math.max(parseInt(b,10),colIdx(colFim))+'"');
+    return '<row '+attrs+'>'+inner+add+'</row>';
+  });
+  xml=xml.replace(/(<dimension ref="[^"]*:)[A-Z]+(\d+")/, (m,a,b)=>a+colFim+b);
+  xml=xml.replace(/<mergeCells count="(\d+)">/, (m,n)=>'<mergeCells count="'+(parseInt(n,10)+nc.length)+'">'+nc.map(c=>'<mergeCell ref="'+c+HDR+':'+c+(HDR+2)+'"/>').join(''));
+  if(tblXml){
+    tblXml=tblXml.replace(new RegExp(':'+colLast+'(\\d+)"','g'), ':'+colFim+'$1"');
+    tblXml=tblXml.replace(/<tableColumns count="(\d+)"/, (m,n)=>'<tableColumns count="'+(parseInt(n,10)+nc.length)+'"');
+    tblXml=tblXml.replace('</tableColumns>', nc.map((c,i)=>'<tableColumn id="'+(tblCnt+1+i)+'" name="Coluna'+(tblCnt+1+i)+'"/>').join('')+'</tableColumns>');
+    zip.file(tblPath, tblXml);
+  }
+  let semMatch=0; Object.keys(map).forEach(tr=>{ if(!usados[tr]) semMatch++; });
+  zip.file(sp, xml);
+  return {preench, ndados, semMatch};
 }
 function viewHorizNS(id){
   horizAtual=id; horizFiltro="todas";
