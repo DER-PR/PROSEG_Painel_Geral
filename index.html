@@ -516,6 +516,7 @@ const NAV = [
     {id:"dashboard", t:"Dashboard", ic:"🏠", go:"viewDashboard()"},
     {id:"notas", t:"Notas de Serviço", ic:"📋", go:"viewHome()"},
     {id:"controle", t:"Controle de NS", ic:"✅", go:"viewControleNS()"},
+    {id:"diario", t:"Diário de Obras", ic:"📓", go:"viewDiario()"},
     {id:"validades", t:"Validades Horizontal", ic:"⏳", go:"viewValidades()"},
     {id:"medicoes", t:"Medições", ic:"📊", soon:true},
     {id:"relatorios", t:"Relatórios", ic:"📄", go:"viewRelatorios()"},
@@ -1924,6 +1925,345 @@ async function preencherProjetoDefZip(zip, map){
   zip.file(sp, xml);
   return {preench, ndados, semMatch};
 }
+
+/* ===================== DIÁRIO DE OBRAS =====================
+   Lê a conversa exportada do grupo de campo (.txt) e preenche o modelo do
+   diário (uma aba por dia). Opcional: a planilha de medição fornece o segmento
+   (código SRE) de cada rodovia, por tipo de serviço. */
+const DIARIO_ENG = "Engº Daniel de Vasconcelos Chaves";
+const DIARIO_MESES = ["janeiro","fevereiro","março","abril","maio","junho","julho","agosto","setembro","outubro","novembro","dezembro"];
+const D_MSG   = /^\[(\d{2}\/\d{2}\/\d{4}),\s*\d{2}:\d{2}:\d{2}\]\s*[^:]+:\s*(.*)$/;
+const D_PROG  = /^Programa\S*\s+(\d{2}\/\d{2}\/\d{4})/i;
+const D_ENTRY = /^(?:(PR\s*\d+(?:\s*e\s*PR\s*\d+)*)\s*[-–]\s*)?Equipe\s+([^-–]+?)\s*[-–]\s*(.+)$/i;
+const D_KWS   = ["defensa","vertical","plastico a frio","base solvente","tacha","sinalizacao"];
+
+function dNorm(s){ return String(s==null?'':s).normalize("NFKD").replace(/[\u0300-\u036f]/g,'').toLowerCase().trim(); }
+function dNormRod(s){ return String(s).trim().replace(/PR\s*0*(\d+)/gi, (m,n)=>'PR-'+String(n).padStart(3,'0')); }
+function dRodKey(s){ const m=/(\d+)/.exec(String(s==null?'':s)); return m? 'PR-'+m[1].padStart(3,'0') : String(s==null?'':s).trim().toUpperCase(); }
+function dTemServico(s){ const t=dNorm(s); return D_KWS.some(k=>t.indexOf(k)>=0); }
+function dTipoServico(s){ const t=dNorm(s); if(t.indexOf("defensa")>=0) return "defensa"; if(t.indexOf("vertical")>=0) return "vertical"; return null; }
+function dFinalizado(e){ return e.status.some(s=>dNorm(s).indexOf("finalizad")>=0); }
+function dClassifica(e){ const st=dNorm(e.status.join(" | "));
+  if(st.indexOf("sem atividades")>=0 || st.indexOf("cancelado")>=0) return "sem";
+  if(st.indexOf("mobilizando")>=0) return "mob";
+  return "ativo"; }
+function dMotivo(e){
+  for(const s of e.status){
+    if(dNorm(s).indexOf("sem atividades")>=0) return s.split(/\s*-\s*sem atividades/i)[0].trim().toUpperCase();
+    if(dNorm(s).indexOf("cancelado")>=0) return s.trim().toUpperCase();
+  }
+  return "";
+}
+function dTraduz(s){
+  const t=dNorm(s);
+  const p=/\(([^)]*)\)/.exec(s);
+  const semParen=String(s).replace(/\s*\([^)]*\)/g,'').trim();
+  let base;
+  if(t.indexOf("defensa")>=0)             base="INSTALAÇÃO DE DEFENSA METÁLICA";
+  else if(t.indexOf("base solvente")>=0)  base="EXECUÇÃO DE SINALIZAÇÃO HORIZONTAL EM BASE SOLVENTE";
+  else if(t.indexOf("plastico a frio")>=0)base="EXECUÇÃO DE SINALIZAÇÃO HORIZONTAL EM PLÁSTICO A FRIO";
+  else if(t.indexOf("vertical")>=0)       base="INSTALAÇÃO DE SINALIZAÇÃO VERTICAL";
+  else                                    base=semParen.toUpperCase();
+  if(t.indexOf("apoio")>=0) base="APOIO À EQUIPE DE "+base;
+  if(p) base+=" ("+p[1].toUpperCase()+")";
+  return base;
+}
+/* um bloco por "Programação DD/MM/AAAA" */
+function dLerBlocos(txt){
+  txt=String(txt).normalize("NFC");            // export do iPhone vem decomposto
+  const blocos=[]; let atual=null;
+  for(const raw of txt.split(/\r?\n/)){
+    const linha=raw.replace(/‎/g,'').replace(/\s+$/,'');
+    const m=D_MSG.exec(linha);
+    if(m){                                     // início de mensagem
+      const p=D_PROG.exec(m[2]);
+      if(p){ atual={data:p[1], linhas:[]}; blocos.push(atual); } else atual=null;
+      continue;
+    }
+    if(atual) atual.linhas.push(linha);
+  }
+  return blocos;
+}
+function dParseBloco(linhas){
+  const entradas=[], obs=[]; let atual=null;
+  for(const l of linhas){
+    const s=l.trim(); if(!s) continue;
+    if(dNorm(s).indexOf("obs:")===0){ obs.push(s.slice(s.indexOf(":")+1).trim()); continue; }
+    const m=D_ENTRY.exec(s);
+    // só é entrada se tiver rodovia OU um serviço reconhecível (evita ler
+    // status como "Equipe dispensada - retorno em 06/07" como serviço)
+    if(m && (m[1] || dTemServico(m[3]))){
+      atual={ rods: m[1]? m[1].split(/\s+e\s+/i).map(dNormRod) : [],
+              equipe:"Equipe "+m[2].trim(), serv:m[3].trim(), status:[] };
+      entradas.push(atual);
+    } else if(atual){ atual.status.push(s); }
+  }
+  return {entradas, obs};
+}
+
+/* ---- helpers de xlsx (nome da aba -> caminho, célula, escrita) ---- */
+async function dSheets(zip){
+  const wbx=await zip.file("xl/workbook.xml").async("string");
+  const rels=await zip.file("xl/_rels/workbook.xml.rels").async("string");
+  const alvo={};
+  (rels.match(/<Relationship\b[^>]*\/>/g)||[]).forEach(r=>{
+    const id=(r.match(/Id="([^"]+)"/)||[])[1]; let t=(r.match(/Target="([^"]+)"/)||[])[1];
+    if(!id||!t) return;
+    t=t.replace(/^\//,'').replace(/^\.\//,'');
+    if(!/^xl\//.test(t)) t="xl/"+t;
+    alvo[id]=t;
+  });
+  const out={};
+  (wbx.match(/<sheet\b[^>]*\/>/g)||[]).forEach(s=>{
+    const n=(s.match(/\sname="([^"]+)"/)||[])[1], id=(s.match(/r:id="([^"]+)"/)||[])[1];
+    if(n&&id&&alvo[id]) out[xmlUnesc(n)]=alvo[id];
+  });
+  return out;
+}
+/* indexado pela referência inteira (A12) e tolerante a <f .../> dentro da célula.
+   O quantificador precisa ser preguiçoso: guloso, o [^>] engole a "/" da célula
+   vazia (<c r="N14" s="167"/>) e o </c> seguinte devora a célula vizinha. */
+function dCelulas(inner){
+  const map={}; const re=/<c\s+r="([A-Z]+\d+)"[^>]*?(?:\/>|>[\s\S]*?<\/c>)/g; let m;
+  while((m=re.exec(inner))) map[m[1]]=m[0];
+  return map;
+}
+/* xmlUnesc só trata as entidades nomeadas; planilhas geradas fora do Excel
+   escrevem acento como &#199; — daí a decodificação numérica aqui. */
+function dUnesc(s){ return xmlUnesc(String(s).replace(/&#(\d+);/g, (m,n)=>String.fromCharCode(parseInt(n,10)))
+                                             .replace(/&#x([0-9a-f]+);/gi, (m,n)=>String.fromCharCode(parseInt(n,16)))); }
+function dTexto(cxml, sst){
+  const head=(cxml.match(/^<c\s[^>]*?>/)||[''])[0];
+  const t=(head.match(/\st="([^"]+)"/)||[])[1];
+  if(t==='inlineStr'){ const im=cxml.match(/<is>[\s\S]*?<t[^>]*>([\s\S]*?)<\/t>/); return im?dUnesc(im[1]):''; }
+  const vm=cxml.match(/<v>([\s\S]*?)<\/v>/); if(!vm) return '';
+  if(t==='s') return dUnesc(sst[parseInt(vm[1],10)]||'');
+  return dUnesc(vm[1]);
+}
+/* edits: {A19:{t:'s',v:'texto'}, J8:{t:'n',v:46000}, A12:{s:12}} */
+function dEscrever(xml, edits){
+  const porLinha={};
+  for(const ref in edits){
+    const m=/^([A-Z]+)(\d+)$/.exec(ref); if(!m) continue;
+    (porLinha[m[2]]=porLinha[m[2]]||[]).push(Object.assign({col:m[1], ref}, edits[ref]));
+  }
+  return xml.replace(/<row ([^>]*?)>([\s\S]*?)<\/row>/g, (full, attrs, inner)=>{
+    const rn=(attrs.match(/r="(\d+)"/)||[])[1];
+    const lista=porLinha[rn]; if(!lista) return full;
+    let novo=inner;
+    for(const e of lista){
+      const re=new RegExp('<c\\s+r="'+e.ref+'"([^>]*?)(?:\\/>|>[\\s\\S]*?<\\/c>)');
+      const cur=re.exec(novo);
+      const s = e.s!=null ? String(e.s) : (cur? (cur[1].match(/\ss="(\d+)"/)||[])[1] : null);
+      const sA = s!=null ? ' s="'+s+'"' : '';
+      let cxml;
+      if(e.t==='s')      cxml='<c r="'+e.ref+'"'+sA+' t="inlineStr"><is><t xml:space="preserve">'+xmlEsc(e.v)+'</t></is></c>';
+      else if(e.t==='n') cxml='<c r="'+e.ref+'"'+sA+'><v>'+e.v+'</v></c>';
+      else               cxml=(cur? cur[0].replace(/\ss="\d+"/,'').replace('<c r="'+e.ref+'"','<c r="'+e.ref+'"'+sA) : '<c r="'+e.ref+'"'+sA+'/>');
+      if(cur) novo=novo.slice(0,cur.index)+cxml+novo.slice(cur.index+cur[0].length);
+      else {                                   // insere na ordem das colunas
+        const ci=colIdx(e.col); let pos=null; const rc=/<c\s+r="([A-Z]+)\d+"[^>]*?(?:\/>|>[\s\S]*?<\/c>)/g; let m2;
+        while((m2=rc.exec(novo))){ if(colIdx(m2[1])>ci){ pos=m2.index; break; } }
+        novo = pos==null ? novo+cxml : novo.slice(0,pos)+cxml+novo.slice(pos);
+      }
+    }
+    return '<row '+attrs+'>'+novo+'</row>';
+  });
+}
+/* cria (uma vez) o preenchimento amarelo e devolve o índice de estilo
+   equivalente ao estilo sIdx, porém pintado */
+function dAmarelo(st, sIdx){
+  if(st.fillId==null){
+    const n=parseInt((st.xml.match(/<fills count="(\d+)"/)||[])[1]||'0',10);
+    st.fillId=n;
+    st.xml=st.xml.replace(/<fills count="(\d+)"/, (m,x)=>'<fills count="'+(parseInt(x,10)+1)+'"')
+                 .replace('</fills>', ()=>'<fill><patternFill patternType="solid"><fgColor rgb="FFFFFF00"/><bgColor indexed="64"/></patternFill></fill></fills>');
+    st.cache={};
+  }
+  if(st.cache[sIdx]!=null) return st.cache[sIdx];
+  const cxm=st.xml.match(/<cellXfs count="(\d+)">([\s\S]*?)<\/cellXfs>/);
+  if(!cxm) throw new Error("styles.xml sem cellXfs");
+  // o quantificador precisa ser preguiçoso só até o ">" da abertura: senão o
+  // <alignment/> interno encerra o casamento e o <xf> sai sem o fechamento
+  const xfs=cxm[2].match(/<xf\b[^>]*?(?:\/>|>[\s\S]*?<\/xf>)/g)||[];
+  let base=xfs[sIdx]||'<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>';
+  let novo=/fillId="\d+"/.test(base) ? base.replace(/fillId="\d+"/, 'fillId="'+st.fillId+'"')
+                                     : base.replace('<xf ', '<xf fillId="'+st.fillId+'" ');
+  novo = /applyFill="[^"]*"/.test(novo) ? novo.replace(/applyFill="[^"]*"/, 'applyFill="1"')
+                                        : novo.replace('<xf ', '<xf applyFill="1" ');
+  const idx=parseInt(cxm[1],10);
+  st.xml=st.xml.replace(/<cellXfs count="(\d+)"/, (m,x)=>'<cellXfs count="'+(parseInt(x,10)+1)+'"')
+               .replace('</cellXfs>', ()=>novo+'</cellXfs>');
+  st.cache[sIdx]=idx;
+  return idx;
+}
+function dSerial(a,m,d){ return Math.round((Date.UTC(a,m-1,d)-Date.UTC(1899,11,30))/86400000); }
+
+/* lê a planilha de medição -> {tipo: {rodovia: [SRE...]}} */
+async function dSegmentos(file){
+  const zip=await JSZip.loadAsync(await file.arrayBuffer());
+  const sheets=await dSheets(zip);
+  const sst=parseSST(zip.file("xl/sharedStrings.xml")? await zip.file("xl/sharedStrings.xml").async("string") : "");
+  const mapa={defensa:{}, vertical:{}};
+  // DEFENSAS: D=rodovia, O=SRE final (dados da linha 14) · VERTICAL: C=rodovia, X=SRE inicial (linha 28)
+  for(const cfg of [["DEFENSAS","defensa","D","O",14], ["VERTICAL","vertical","C","X",28]]){
+    const p=sheets[cfg[0]]; if(!p||!zip.file(p)) continue;
+    const xml=await zip.file(p).async("string");
+    const rre=/<row ([^>]*?)>([\s\S]*?)<\/row>/g; let m;
+    while((m=rre.exec(xml))){
+      const rn=parseInt((m[1].match(/r="(\d+)"/)||[])[1],10);
+      if(!rn||rn<cfg[4]) continue;
+      const cel=dCelulas(m[2]);
+      const rod=cel[cfg[2]+rn]? dTexto(cel[cfg[2]+rn],sst).trim() : '';
+      const sre=cel[cfg[3]+rn]? dTexto(cel[cfg[3]+rn],sst).trim() : '';
+      if(!rod||!sre) continue;
+      const k=dRodKey(rod); const arr=mapa[cfg[1]][k]=mapa[cfg[1]][k]||[];
+      if(arr.indexOf(sre)<0) arr.push(sre);
+    }
+  }
+  return mapa;
+}
+
+/* ---- tela ---- */
+function viewDiario(){
+  setNav("diario","Diário de Obras");
+  setCrumbs([{t:"Dashboard", go:"viewDashboard()"},{t:"Diário de Obras"}]);
+  const hoje=new Date();
+  const mesOpts=DIARIO_MESES.map((m,i)=>`<option value="${i+1}">${m.charAt(0).toUpperCase()+m.slice(1)}</option>`).join('');
+  let anoOpts=''; for(let a=hoje.getFullYear()+1;a>=2024;a--) anoOpts+=`<option value="${a}">${a}</option>`;
+  document.getElementById("view").innerHTML=`
+    <div class="pagehd"><div><h2>Diário de Obras</h2><div class="sb">Gera o diário do mês a partir da conversa do grupo de campo</div></div></div>
+    <div style="background:#fff;border:1px solid var(--borda);border-radius:12px;padding:18px;max-width:760px">
+      <p class="muted" style="margin-top:0;font-size:13px">Envie o <b>modelo do diário em branco</b> (as abas 01 a 31) e a <b>conversa do grupo exportada</b> (.txt). O painel lê cada “Programação DD/MM/AAAA”, traduz os serviços e preenche <b>data, rodovia, serviços do dia, profissionais, observações e o clima</b>. A <b>planilha de medição</b> é opcional e serve para trazer o <b>segmento (código SRE)</b> de cada rodovia.</p>
+      <label>Modelo do diário em branco (.xlsx)</label>
+      <input type="file" id="diaModelo" accept=".xlsx" onchange="preLerDiario()">
+      <label>Conversa do grupo exportada (.txt)</label>
+      <input type="file" id="diaChat" accept=".txt,text/plain" onchange="preLerDiario()">
+      <label>Planilha de medição (.xlsx) — opcional, traz os segmentos</label>
+      <input type="file" id="diaMed" accept=".xlsx" onchange="preLerDiario()">
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px">
+        <div style="flex:1;min-width:150px"><label>Mês</label>
+          <select id="diaMes" style="width:100%;padding:8px;border:1px solid var(--borda);border-radius:8px;font-size:14px">${mesOpts}</select></div>
+        <div style="flex:1;min-width:110px"><label>Ano</label>
+          <select id="diaAno" style="width:100%;padding:8px;border:1px solid var(--borda);border-radius:8px;font-size:14px">${anoOpts}</select></div>
+      </div>
+      <p class="muted" id="diaInfo" style="font-size:12px;margin:12px 0 0"></p>
+      <div style="margin-top:14px"><button class="btn pri" onclick="gerarDiario()">⬇ Gerar diário (Excel)</button></div>
+    </div>
+    <div id="diaRel" style="max-width:760px"></div>`;
+  document.getElementById("diaMes").value=String(hoje.getMonth()||12);
+  document.getElementById("diaAno").value=String(hoje.getMonth()? hoje.getFullYear() : hoje.getFullYear()-1);
+}
+/* ao escolher a conversa, descobre sozinho o mês predominante */
+async function preLerDiario(){
+  const fm=document.getElementById("diaModelo").files[0];
+  const fc=document.getElementById("diaChat").files[0];
+  const fd=document.getElementById("diaMed").files[0];
+  const info=document.getElementById("diaInfo");
+  info.textContent=[fm&&fm.name, fc&&fc.name, fd&&fd.name].filter(Boolean).join(" · ");
+  if(!fc) return;
+  try{
+    const blocos=dLerBlocos(await fc.text());
+    if(!blocos.length){ info.textContent+=" — nenhuma “Programação DD/MM/AAAA” encontrada nessa conversa."; return; }
+    const cont={};
+    blocos.forEach(b=>{ const p=b.data.split("/"); const k=p[2]+"-"+p[1]; cont[k]=(cont[k]||0)+1; });
+    const top=Object.keys(cont).sort((a,b)=>cont[b]-cont[a])[0].split("-");
+    document.getElementById("diaAno").value=top[0];
+    document.getElementById("diaMes").value=String(parseInt(top[1],10));
+    info.textContent+=" — "+blocos.length+" programação(ões); mês sugerido: "+DIARIO_MESES[parseInt(top[1],10)-1]+"/"+top[0]+".";
+  }catch(e){ console.error(e); }
+}
+async function gerarDiario(){
+  const fm=document.getElementById("diaModelo").files[0];
+  const fc=document.getElementById("diaChat").files[0];
+  const fd=document.getElementById("diaMed").files[0];
+  const mes=parseInt(document.getElementById("diaMes").value,10);
+  const ano=parseInt(document.getElementById("diaAno").value,10);
+  const info=document.getElementById("diaInfo"), rel=document.getElementById("diaRel");
+  if(!fm){ toast("Selecione o modelo do diário (.xlsx)"); return; }
+  if(!fc){ toast("Selecione a conversa exportada (.txt)"); return; }
+  if(typeof JSZip==='undefined'){ toast("Biblioteca indisponível (sem internet?)"); return; }
+  info.textContent="Gerando… aguarde alguns segundos."; rel.innerHTML="";
+  try{
+    const blocos=dLerBlocos(await fc.text());
+    const segmap=fd? await dSegmentos(fd) : null;
+    const zip=await JSZip.loadAsync(await fm.arrayBuffer());
+    const sheets=await dSheets(zip);
+    const st={xml: await zip.file("xl/styles.xml").async("string")};
+    const ultimaRod={};                 // equipe -> última rodovia conhecida
+    const linhas=[]; let nDias=0;
+    for(const b of blocos){
+      const p=b.data.split("/").map(x=>parseInt(x,10));
+      if(p[1]!==mes || p[2]!==ano) continue;
+      const aba=String(p[0]).padStart(2,"0");
+      if(!sheets[aba]){ linhas.push({dia:aba, erro:"aba não existe no modelo"}); continue; }
+      const pb=dParseBloco(b.linhas);
+      const servicos=[], obsContratada=[], equipes=[], rodsAtivas=[], segmentos=[];
+      for(const e of pb.entradas){
+        if(!e.rods.length){ const r=ultimaRod[e.equipe]; e.rods = r? [r] : []; }
+        e.rods.forEach(r=>{ ultimaRod[e.equipe]=r; });
+        const tipo=dClassifica(e), serv=dTraduz(e.serv);
+        const rodTxt=e.rods.length? e.rods.join(" e ") : "(SEM RODOVIA)";
+        if(tipo==="sem"){
+          obsContratada.push(rodTxt+": "+serv+" ("+e.equipe.toUpperCase()+") - SEM ATIVIDADES - "+dMotivo(e)+".");
+        } else if(tipo==="mob"){
+          (e.rods.length? e.rods : ["(SEM RODOVIA)"]).forEach(r=>servicos.push(r+": MOBILIZAÇÃO - "+serv));
+          e.rods.forEach(r=>{ if(rodsAtivas.indexOf(r)<0) rodsAtivas.push(r); });
+        } else {
+          const fim=dFinalizado(e)? " - FINALIZADO" : "";
+          (e.rods.length? e.rods : ["(SEM RODOVIA)"]).forEach(r=>servicos.push(r+": "+serv+fim));
+          e.rods.forEach(r=>{ if(rodsAtivas.indexOf(r)<0) rodsAtivas.push(r); });
+          if(equipes.indexOf(e.equipe)<0) equipes.push(e.equipe);
+          const tp=dTipoServico(e.serv);
+          if(segmap && tp) e.rods.forEach(r=>{
+            (segmap[tp][dRodKey(r)]||[]).slice().sort().forEach(s=>{ if(segmentos.indexOf(s)<0) segmentos.push(s); });
+          });
+        }
+      }
+      const textoDia=dNorm(b.linhas.join(" "));
+      const temChuva=textoDia.indexOf("chuva")>=0, temAtiv=servicos.length>0;
+      const edits={};
+      const txt=(ref,v)=>{ if(v!=='') edits[ref]={t:'s', v}; };   // vazio deixa a célula em branco
+      edits["J8"]={t:'n', v:dSerial(p[2],p[1],p[0])};
+      txt("A14", rodsAtivas.length<=2 ? rodsAtivas.join(" e ")
+                   : rodsAtivas.slice(0,-1).join(", ")+" e "+rodsAtivas[rodsAtivas.length-1]);
+      if(segmentos.length) txt("A16", segmentos.join(" / "));
+      txt("A19", servicos.join("\n"));
+      txt("A28", equipes.join(" / "));
+      txt("A31", DIARIO_ENG);
+      txt("I28", "X");                   // SUFICIENTE? = SIM
+      txt("K31", "X");                   // PRESENTE?   = NÃO
+      if(pb.obs.length) obsContratada.push("OBS: "+pb.obs.map(o=>o.toUpperCase()).join("; ")+".");
+      txt("A34", obsContratada.join("\n"));
+
+      let xml=await zip.file(sheets[aba]).async("string");
+      // clima: pinta de amarelo (A12=BOM, C12=CHUVOSO)
+      const cel=dCelulas(xml);
+      const sA12=(cel["A12"]? (cel["A12"].match(/\ss="(\d+)"/)||[])[1] : null);
+      const sC12=(cel["C12"]? (cel["C12"].match(/\ss="(\d+)"/)||[])[1] : null);
+      if(temAtiv || (!temAtiv && !temChuva)) edits["A12"]={s:dAmarelo(st, parseInt(sA12||'0',10))};
+      if(temChuva)                           edits["C12"]={s:dAmarelo(st, parseInt(sC12||'0',10))};
+      zip.file(sheets[aba], dEscrever(xml, edits));
+      nDias++;
+      linhas.push({dia:aba, serv:servicos.length, obs:obsContratada.length, seg:segmentos.length,
+                   clima:(temAtiv&&temChuva)?"bom e chuvoso":(temChuva?"chuvoso":"bom")});
+    }
+    if(!nDias){ info.textContent="Nenhuma programação de "+DIARIO_MESES[mes-1]+"/"+ano+" nessa conversa."; toast("Nada para gerar nesse mês"); return; }
+    zip.file("xl/styles.xml", st.xml);
+    const blob=await zip.generateAsync({type:"blob",compression:"DEFLATE"});
+    const nome="DIARIO_"+DIARIO_MESES[mes-1].toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g,'')+"_"+ano+".xlsx";
+    const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=nome;
+    document.body.appendChild(a); a.click(); setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); },1500);
+    info.textContent="✓ Gerado — "+nDias+" dia(s) preenchido(s).";
+    rel.innerHTML=`<h3 style="margin:22px 0 8px;font-size:15px">Dias preenchidos</h3>
+      <table><thead><tr><th>Dia</th><th>Serviços</th><th>Segmentos</th><th>Observações</th><th>Clima</th></tr></thead><tbody>`+
+      linhas.map(l=> l.erro? `<tr><td><b>${l.dia}</b></td><td colspan="4" class="muted">${esc(l.erro)}</td></tr>`
+        : `<tr><td><b>${l.dia}</b></td><td>${l.serv}</td><td>${l.seg||'<span class="muted">(verificar)</span>'}</td><td>${l.obs}</td><td class="muted">${l.clima}</td></tr>`).join('')+
+      `</tbody></table>`;
+    toast("Diário gerado: "+nome);
+  }catch(e){ console.error(e); info.textContent="Erro: "+((e&&e.message)||e); toast("Falha ao gerar o diário"); }
+}
+
 function viewHorizNS(id){
   horizAtual=id; horizFiltro="todas";
   setNav("notas","Sinalização Horizontal");
