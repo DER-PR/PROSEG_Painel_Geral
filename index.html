@@ -1432,7 +1432,7 @@ function renderListaDef(){
     const cor = s.pct===100?'var(--verde)':(s.medidas===0?'var(--cinza)':'var(--azul)');
     const andam=`<div style="display:flex;align-items:center;gap:8px;min-width:160px"><div class="prog" style="flex:1"><i style="width:${s.pct}%"></i></div><span style="white-space:nowrap"><b>${s.total}/${s.medidas}</b> <span style="color:${cor};font-weight:600">(${s.pct}%)</span></span></div>`;
     const dNS=datasNS[m.id]||m.dataNS||'';
-    return `<tr class="nsrow" onclick="viewDefNS('${m.id}')"><td><b>${esc(m.rodovia)}</b>${m.manual?' <span class="badge b-azul" title="Cadastrada manualmente">manual</span>':''}</td><td class="muted">${dNS?esc(dNS):'—'}</td><td style="text-align:right">${m.nItens}</td><td>${andam}</td></tr>`;
+    return `<tr class="nsrow" onclick="viewDefNS('${m.id}')"><td><b>${esc(m.rodovia)}</b></td><td class="muted">${dNS?esc(dNS):'—'}</td><td style="text-align:right">${m.nItens}</td><td>${andam}</td></tr>`;
   }).join('');
 }
 async function viewDefNS(id){
@@ -1452,7 +1452,7 @@ function renderDefNS(){
   const acoes = ns.manual? `<div style="margin-left:auto;display:flex;gap:8px;align-self:center"><button class="btn" onclick="editarNota('${defAtual}')">✎ Editar NS</button><button class="btn" onclick="excluirNota('${defAtual}')">🗑 Excluir</button></div>`:'';
   document.getElementById("view").innerHTML=`
     <div class="stat">
-      <div><div class="n">${esc(ns.rodovia)} ${ns.manual?'<span class="badge b-azul" style="vertical-align:middle">manual</span>':''}</div><div class="l">Defensas metálicas</div></div>
+      <div><div class="n">${esc(ns.rodovia)}</div><div class="l">Defensas metálicas</div></div>
       <div><div class="n">${s.total}/${s.medidas} <span style="font-size:16px;color:${s.pct===100?'var(--verde)':'var(--azul)'}">(${s.pct}%)</span></div><div class="l">Tramos / medidos — andamento</div></div>
       <div style="align-self:center;min-width:160px"><div class="prog"><i style="width:${s.pct}%"></i></div><div class="l" style="margin-top:4px">${s.medidas} medido(s) · ${s.total-s.medidas} pendente(s)</div></div>
       ${acoes}
