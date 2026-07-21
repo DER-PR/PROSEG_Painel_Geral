@@ -290,10 +290,17 @@
           <option value="defensa">Dispositivos (Defensa)</option>
           <option value="vertical">Sinalização Vertical</option>
           <option value="horizontal">Sinalização Horizontal</option>
+          <option value="tachas">Tachas e Tachões</option>
           <option value="revisao">Revisão de Projeto</option>
         </select></div>
       <div style="flex:1;min-width:110px"><label>Rodovia</label><input id="notaRod" placeholder="PR-090" style="width:100%;padding:8px;border:1px solid var(--borda);border-radius:8px;font-size:14px"></div>
       <div style="flex:1;min-width:110px"><label>Data da NS</label><input id="notaData" placeholder="22.05.26" style="width:100%;padding:8px;border:1px solid var(--borda);border-radius:8px;font-size:14px"></div>
+      <div id="notaTipoWrap" style="flex:1;min-width:150px;display:none"><label>Tipo</label>
+        <select id="notaTipoTacha" style="width:100%;padding:8px;border:1px solid var(--borda);border-radius:8px;font-size:14px">
+          <option value="Tachas e Tachões">Tachas e Tachões</option>
+          <option value="Tachas">Tachas</option>
+          <option value="Tachões">Tachões</option>
+        </select></div>
     </div>
     <label style="margin-top:12px">Itens</label>
     <div style="overflow-x:auto;border:1px solid var(--borda);border-radius:8px"><table id="notaLinhas" style="font-size:12px;border:none;border-radius:0"></table></div>
@@ -374,6 +381,10 @@ let revManifest = [];       // lista de NS de revisão de projeto
 let revCache = {};          // id -> objeto carregado
 let revAtual = null;        // id da NS aberta
 let revFiltro = "todas";
+let tachasManifest = [];    // lista de NS de tachas e tachões
+let tachasCache = {};       // id -> objeto carregado
+let tachasAtual = null;     // id da NS aberta
+let tachasFiltro = "todas";
 
 /* ===== RELATÓRIOS (PDFs ficam no Google Drive; o site guarda só o registro) ===== */
 const LS_REL = "proseg_painel_relatorios_v1";
@@ -406,6 +417,10 @@ function registrarNotaManual(id, def){
     revCache[id]={_id:id, rodovia, manual:true, itens};
     revManifest = revManifest.filter(m=>m.id!==id);
     revManifest.push({id, rodovia, dataNS, nItens:itens.length, manual:true});
+  } else if(def.frente==="tachas"){
+    tachasCache[id]={_id:id, rodovia, dataNS, tipoTacha:def.tipoTacha||"", manual:true, itens};
+    tachasManifest = tachasManifest.filter(m=>m.id!==id);
+    tachasManifest.push({id, rodovia, dataNS, tipoTacha:def.tipoTacha||"", nItens:itens.length, manual:true});
   }
 }
 /* remove uma NS manual dos manifests/caches locais */
@@ -416,6 +431,7 @@ function removerNotaManualLocal(id){
   else if(def.frente==="defensa"){ delete defCache[id]; defManifest=defManifest.filter(m=>m.id!==id); }
   else if(def.frente==="horizontal"){ delete horizCache[id]; horizManifest=horizManifest.filter(m=>m.id!==id); }
   else if(def.frente==="revisao"){ delete revCache[id]; revManifest=revManifest.filter(m=>m.id!==id); }
+  else if(def.frente==="tachas"){ delete tachasCache[id]; tachasManifest=tachasManifest.filter(m=>m.id!==id); }
 }
 /* limpa todas as NS manuais dos manifests (antes de recarregar da nuvem) */
 function limparNotasManuais(){
@@ -477,6 +493,7 @@ function ordenarManifests(){
   defManifest.sort((a,b)=> a.rodovia.localeCompare(b.rodovia,'pt'));
   horizManifest.sort((a,b)=> a.rodovia.localeCompare(b.rodovia,'pt'));
   revManifest.sort((a,b)=> a.rodovia.localeCompare(b.rodovia,'pt'));
+  tachasManifest.sort((a,b)=> a.rodovia.localeCompare(b.rodovia,'pt'));
 }
 /* tela de login */
 function viewLogin(msg){
@@ -620,7 +637,7 @@ function viewDashboard(){
   document.getElementById("crumbs").innerHTML="";
   const f=(contrato&&contrato.financeiro)||{};
   const pct=f.pctExecucao!=null?f.pctExecucao:0;
-  const nNotas=manifest.length+defManifest.length+horizManifest.length+revManifest.length;
+  const nNotas=manifest.length+defManifest.length+horizManifest.length+tachasManifest.length+revManifest.length;
   // estatísticas de campo
   const totPlacas=manifest.reduce((s,m)=>s+(m.totalPlacas||0),0);
   const totMedVert=manifest.reduce((s,m)=>s+statNS(m.id).medidas,0);
@@ -643,7 +660,7 @@ function viewDashboard(){
   const cards=[
     {t:"Sinalização Vertical", d:manifest.length+" notas de serviço", ic:"🚦", bg:"#e11d48", go:"viewVertical()"},
     {t:"Sinalização Horizontal", d:horizManifest.length+" notas de serviço", ic:"🛣️", bg:"#16a34a", go:"viewHorizontal()"},
-    {t:"Tachas e Tachões", d:"em breve", ic:"🔵", bg:"#0ea5e9", off:true},
+    {t:"Tachas e Tachões", d:tachasManifest.length+" notas de serviço", ic:"🔵", bg:"#0ea5e9", go:"viewTachas()"},
     {t:"Dispositivos de Segurança", d:defManifest.length+" notas de serviço", ic:"🛡️", bg:"#f59e0b", go:"viewDefensas()"},
     {t:"Revisão de Projeto", d:revManifest.length+" notas de serviço", ic:"📐", bg:"#7c3aed", go:"viewRevisao()"},
     {t:"Cronograma / Curva S", d:"Evolução física-financeira", ic:"📈", bg:"#0891b2", go:"viewCronograma()"},
@@ -689,6 +706,7 @@ function viewDashboard(){
     Object.assign({t:"Dispositivos de Segurança", ic:"🛡️", sub:"NS concluídas"}, resumoFrenteNS(defManifest, statDef)),
   ];
   if(horizManifest.length) frentesResumo.push(Object.assign({t:"Sinalização Horizontal", ic:"🛣️", sub:"NS concluídas"}, resumoFrenteNS(horizManifest, statHoriz)));
+  if(tachasManifest.length) frentesResumo.push(Object.assign({t:"Tachas e Tachões", ic:"🔵", sub:"NS concluídas"}, resumoFrenteNS(tachasManifest, statTachas)));
   if(revManifest.length) frentesResumo.push(Object.assign({t:"Revisão de Projeto", ic:"📐", sub:"NS concluídas"}, resumoFrenteNS(revManifest, statRev)));
   const resumoPanel=`<div class="panel" style="margin-bottom:18px"><h3>Andamento das notas de serviço <span class="see" onclick="viewHome()">Ver todas</span></h3>
     <div class="feed">`+frentesResumo.map(fr=>{
@@ -829,7 +847,7 @@ function viewHome(){
   const opts = [
     {t:"Sinalização Vertical", ic:"🚦", bg:"#e11d48", d:manifest.length+" notas de serviço", go:"viewVertical()"},
     {t:"Sinalização Horizontal", ic:"🛣️", bg:"#16a34a", d:horizManifest.length+" notas de serviço", go:"viewHorizontal()"},
-    {t:"Tachas e Tachões", ic:"🔵", bg:"#0ea5e9", d:"em breve", off:true},
+    {t:"Tachas e Tachões", ic:"🔵", bg:"#0ea5e9", d:tachasManifest.length+" notas de serviço", go:"viewTachas()"},
     {t:"Dispositivos de Segurança", ic:"🛡️", bg:"#f59e0b", d:defManifest.length+" notas de serviço", go:"viewDefensas()"},
     {t:"Revisão de Projeto", ic:"📐", bg:"#7c3aed", d:revManifest.length+" notas de serviço", go:"viewRevisao()"},
   ];
@@ -1555,6 +1573,7 @@ function todasNS(){
   manifest.forEach(m=>out.push({id:m.id, frL:"Vertical", ic:"🚦", rodovia:m.rodovia, dataNS:m.dataNS||""}));
   horizManifest.forEach(m=>out.push({id:m.id, frL:"Horizontal", ic:"🛣️", rodovia:m.rodovia, dataNS:m.dataNS||""}));
   defManifest.forEach(m=>out.push({id:m.id, frL:"Dispositivos", ic:"🛡️", rodovia:m.rodovia, dataNS:datasNS[m.id]||m.dataNS||""}));
+  tachasManifest.forEach(m=>out.push({id:m.id, frL:"Tachas", ic:"🔵", rodovia:m.rodovia, dataNS:m.dataNS||""}));
   revManifest.forEach(m=>out.push({id:m.id, frL:"Revisão", ic:"📐", rodovia:m.rodovia, dataNS:m.dataNS||""}));
   return out;
 }
@@ -2385,6 +2404,87 @@ function setRevMedInline(idx, val){
   nuvemEnviar([{frente:"__nota__", ns:revAtual, item:"meta", obs: JSON.stringify(def)}]);
   renderRevNS();
 }
+/* ================= TACHAS E TACHÕES ================= */
+function statTachas(id, ns){
+  const arr=(ns? ns.itens : (tachasCache[id]?tachasCache[id].itens:null))||[];
+  const total=arr.length;
+  const medidas=arr.filter(x=> sitEfetivaHoriz(x)==='Concluído').length;
+  return { total, medidas, pct: total? Math.round(medidas/total*100):0 };
+}
+function viewTachas(){
+  tachasAtual=null;
+  setNav("notas","Tachas e Tachões");
+  setCrumbs([{t:"Dashboard", go:"viewDashboard()"},{t:"Notas de Serviço", go:"viewHome()"},{t:"Tachas e Tachões"}]);
+  const totI=tachasManifest.reduce((s,m)=>s+(m.nItens||0),0);
+  const totMed=tachasManifest.reduce((s,m)=>s+statTachas(m.id).medidas,0);
+  document.getElementById("view").innerHTML=`
+    <div class="pagehd"><div><h2>Tachas e Tachões</h2><div class="sb">Notas de serviço cadastradas manualmente</div></div>
+      <div style="margin-left:auto"><button class="btn pri" onclick="abrirNota('tachas')">+ Cadastrar NS manual</button></div></div>
+    <div class="stat">
+      <div><div class="n">${tachasManifest.length}</div><div class="l">Notas de serviço</div></div>
+      <div><div class="n">${totI}</div><div class="l">Trechos</div></div>
+      <div><div class="n">${totMed}</div><div class="l">Concluídos</div></div>
+      <div><div class="n">${totI-totMed}</div><div class="l">Em aberto</div></div>
+    </div>
+    ${tachasManifest.length? `<div class="toolbar"><input class="busca" id="buscaTac" placeholder="Buscar rodovia…" oninput="renderListaTachas()"></div>
+    <table><thead><tr><th>Rodovia</th><th>Tipo</th><th style="text-align:right">Trechos</th><th>Situação</th></tr></thead><tbody id="tbTac"></tbody></table>`
+    : `<div class="empty">Nenhuma NS de tachas ainda.<br>Use <b>+ Cadastrar NS manual</b> para adicionar.</div>`}`;
+  if(tachasManifest.length) renderListaTachas();
+}
+function renderListaTachas(){
+  const q=(document.getElementById("buscaTac")?.value||"").toLowerCase().trim();
+  const tb=document.getElementById("tbTac");
+  const list=tachasManifest.filter(m=> !q || m.rodovia.toLowerCase().includes(q));
+  if(!list.length){ tb.innerHTML=`<tr><td colspan="4" class="empty">Nenhuma rodovia.</td></tr>`; return; }
+  tb.innerHTML=list.map(m=>{
+    const its=(tachasCache[m.id]&&tachasCache[m.id].itens)||[];
+    return `<tr class="nsrow" onclick="viewTachasNS('${m.id}')"><td><b>${esc(m.rodovia)}</b>${m.dataNS?` <span class="muted" style="font-weight:500">· ${esc(m.dataNS)}</span>`:''}</td><td class="muted">${esc(m.tipoTacha||'—')}</td><td style="text-align:right">${m.nItens}</td><td>${seloSit(statusNSItens(its))}</td></tr>`;
+  }).join('');
+}
+function viewTachasNS(id){
+  tachasAtual=id; tachasFiltro="todas";
+  setNav("notas","Tachas e Tachões");
+  const ns=tachasCache[id];
+  setCrumbs([{t:"Dashboard", go:"viewDashboard()"},{t:"Tachas e Tachões", go:"viewTachas()"},{t:ns.rodovia}]);
+  renderTachasNS();
+}
+function setFiltroTachas(f){ tachasFiltro=f; renderTachasNS(); }
+function renderTachasNS(){
+  const ns=tachasCache[tachasAtual]; const its=ns.itens||[]; const s=statTachas(tachasAtual,ns);
+  const cont={Aguardando:0,Iniciado:0,'Concluído':0};
+  its.forEach(it=>{ const e=sitEfetivaHoriz(it); cont[e]=(cont[e]||0)+1; });
+  const pill=(f,label,n)=>`<span class="pill ${String(tachasFiltro)===f?'on':''}" onclick="setFiltroTachas('${f}')">${label} (${n})</span>`;
+  const pills=[pill('todas','Todas',its.length),pill('Aguardando','Aguardando',cont.Aguardando),pill('Iniciado','Iniciado',cont.Iniciado),pill('Concluído','Concluídas',cont['Concluído'])];
+  const acoes=`<div style="margin-left:auto;display:flex;gap:8px"><button class="btn" onclick="editarNota('${tachasAtual}')">✎ Editar NS</button><button class="btn" onclick="excluirNota('${tachasAtual}')">🗑 Excluir</button></div>`;
+  document.getElementById("view").innerHTML=`
+    <div class="pagehd"><div><h2>${esc(ns.rodovia)}</h2><div class="sb">${esc(ns.tipoTacha||'Tachas e Tachões')}${ns.dataNS?' · '+esc(ns.dataNS):''} · ${s.medidas}/${s.total} concluídos (${s.pct}%)</div></div>${acoes}</div>
+    <div class="hint">Ajuste a <b>Situação</b> e a <b>Data de conclusão</b> direto na tabela. Para mudar km ou dispositivos, use <b>Editar NS</b>.</div>
+    <div class="toolbar">${pills.join('')}</div>
+    <table><thead><tr><th style="width:34px">#</th><th>km (início → fim)</th><th>Dispositivos</th><th style="width:130px">Situação</th><th style="width:120px">Data concl.</th></tr></thead>
+    <tbody id="tbTc"></tbody></table>`;
+  renderTachasItens();
+}
+function renderTachasItens(){
+  const ns=tachasCache[tachasAtual]; const its=ns.itens||[];
+  const tb=document.getElementById("tbTc");
+  const rows=its.map((it,i)=>({it,i})).filter(({it})=> tachasFiltro==='todas' || sitEfetivaHoriz(it)===tachasFiltro);
+  if(!rows.length){ tb.innerHTML=`<tr><td colspan="5" class="empty">Nenhum trecho neste filtro.</td></tr>`; return; }
+  const OPTS=["Aguardando","Iniciado","Concluído"];
+  tb.innerHTML=rows.map(({it,i})=>{
+    const km=`${esc(it.kmIni||'—')} → ${esc(it.kmFim||'—')}`;
+    const sit=it.situacao||'Aguardando';
+    const selSit=`<select class="med-inp" style="width:118px" onchange="setTachaCampo(${i},'situacao',this.value)">`+
+      OPTS.map(o=>`<option ${sit===o?'selected':''}>${o}</option>`).join('')+`</select>`;
+    const inpData=`<input class="med-inp" style="width:104px" value="${esc(it.dataConclusao||'')}" placeholder="dd/mm/aa" onchange="setTachaCampo(${i},'dataConclusao',this.value)">`;
+    return `<tr><td class="muted">${i+1}</td><td>${km}</td><td class="sup" style="max-width:280px">${esc(dispTxt(it.dispositivos)||'—')}</td><td>${selSit}</td><td>${inpData}</td></tr>`;
+  }).join('');
+}
+function setTachaCampo(idx, campo, val){
+  const def=manualDefs[tachasAtual]; if(!def||!def.itens[idx]) return;
+  def.itens[idx][campo]=String(val).trim();
+  nuvemEnviar([{frente:"__nota__", ns:tachasAtual, item:"meta", obs: JSON.stringify(def)}]);
+  renderTachasNS();
+}
 function setMedicaoHoriz(idx, val){
   if(!horizMedicoes[horizAtual]) horizMedicoes[horizAtual]={};
   val=String(val).trim();
@@ -2428,37 +2528,55 @@ const CAMPOS_NOTA = {
     {k:"situacao", t:"Situação", tipo:"select", opcoes:["Aguardando","Iniciado"], w:104},
     {k:"dataConclusao", t:"Data conclusão", ph:"dd/mm/aa", w:104},
   ]},
+  tachas: { cols:[
+    {k:"kmIni", t:"km inicial", ph:"10+000", w:92},
+    {k:"kmFim", t:"km final", ph:"12+000", w:92},
+    {k:"dispositivos", t:"Dispositivos", tipo:"multi", w:210, opcoes:["Tacha Bi Tipo III ou IV","Tacha Bi Tipo II","Tacha Mono Tipo III ou IV","Tacha Mono Tipo II","Tachão Bi","Tachão Mono"]},
+    {k:"situacao", t:"Situação", tipo:"select", opcoes:["Aguardando","Iniciado","Concluído"], w:118},
+    {k:"dataConclusao", t:"Data conclusão", ph:"dd/mm/aa", w:104},
+  ]},
 };
+const TACHAS_DISPOS=["Tacha Bi Tipo III ou IV","Tacha Bi Tipo II","Tacha Mono Tipo III ou IV","Tacha Mono Tipo II","Tachão Bi","Tachão Mono"];
+function dispTxt(v){ return Array.isArray(v)? v.join(", ") : String(v||""); }
 function sitEfetivaHoriz(it){ return String((it&&it.medicao)||'').trim()!=='' ? 'Concluído' : ((it&&it.situacao)||'Aguardando'); }
 /* selo colorido por situação (reutilizado em horizontal e revisão) */
 function seloSit(sit){ const cls=sit==='Concluído'?'b-verde':(sit==='Iniciado'?'b-amarelo':'b-cinza'); return `<span class="badge ${cls}">${esc(sit)}</span>`; }
 /* situação agregada de uma NS (por itens): Concluído se todos medidos; Iniciado se algum progresso; senão Aguardando */
 function statusNSItens(itens){
   const its=itens||[]; if(!its.length) return 'Aguardando';
-  const conc=its.filter(it=>String((it&&it.medicao)||'').trim()!=='').length;
+  const conc=its.filter(it=>sitEfetivaHoriz(it)==='Concluído').length;
   if(conc===its.length) return 'Concluído';
-  if(conc>0 || its.some(it=>it&&it.situacao==='Iniciado')) return 'Iniciado';
+  if(conc>0 || its.some(it=>sitEfetivaHoriz(it)==='Iniciado')) return 'Iniciado';
   return 'Aguardando';
 }
 let notaFrente="defensa", notaEditId=null, notaLinhas=[];
 function abrirNota(frente, editId){
   notaEditId = editId||null;
   if(notaEditId && manualDefs[notaEditId]){ const d=manualDefs[notaEditId]; notaFrente=d.frente; notaLinhas=(d.itens||[]).map(it=>Object.assign({},it));
-    document.getElementById("notaRod").value=d.rodovia||""; document.getElementById("notaData").value=d.dataNS||""; }
-  else { notaFrente=frente||"defensa"; notaLinhas=[{}]; document.getElementById("notaRod").value=""; document.getElementById("notaData").value=""; }
+    document.getElementById("notaRod").value=d.rodovia||""; document.getElementById("notaData").value=d.dataNS||"";
+    document.getElementById("notaTipoTacha").value=d.tipoTacha||"Tachas e Tachões"; }
+  else { notaFrente=frente||"defensa"; notaLinhas=[{}]; document.getElementById("notaRod").value=""; document.getElementById("notaData").value="";
+    document.getElementById("notaTipoTacha").value="Tachas e Tachões"; }
   const sel=document.getElementById("notaFrente"); sel.value=notaFrente; sel.disabled=!!notaEditId;
   document.getElementById("dlgNotaTitulo").textContent = notaEditId? "Editar NS manual" : "Cadastrar NS manual";
+  document.getElementById("notaTipoWrap").style.display = notaFrente==="tachas"?"":"none";
   renderNotaForm();
   document.getElementById("dlgNota").showModal();
 }
-function notaSetFrente(){ notaFrente=document.getElementById("notaFrente").value; if(!notaEditId){ notaLinhas=[{}]; } renderNotaForm(); }
+function notaSetFrente(){ notaFrente=document.getElementById("notaFrente").value; if(!notaEditId){ notaLinhas=[{}]; }
+  document.getElementById("notaTipoWrap").style.display = notaFrente==="tachas"?"":"none";
+  renderNotaForm(); }
 function notaAddLinha(){ notaLeituraLinhas(); notaLinhas.push({}); renderNotaForm(); }
 function notaRemLinha(i){ notaLeituraLinhas(); notaLinhas.splice(i,1); if(!notaLinhas.length) notaLinhas=[{}]; renderNotaForm(); }
 function notaLeituraLinhas(){
   const cols=CAMPOS_NOTA[notaFrente].cols;
   document.querySelectorAll('#notaLinhas tr[data-i]').forEach(tr=>{
     const i=+tr.getAttribute('data-i');
-    cols.forEach(c=>{ const inp=tr.querySelector(`[data-k="${c.k}"]`); if(inp) notaLinhas[i][c.k]=inp.value; });
+    cols.forEach(c=>{
+      if(c.tipo==='multi'){
+        notaLinhas[i][c.k]=[...tr.querySelectorAll(`[data-k="${c.k}"]:checked`)].map(x=>x.value);
+      } else { const inp=tr.querySelector(`[data-k="${c.k}"]`); if(inp) notaLinhas[i][c.k]=inp.value; }
+    });
   });
 }
 function renderNotaForm(){
@@ -2468,6 +2586,11 @@ function renderNotaForm(){
     cfg.cols.map(c=>{
       const val=ln[c.k]!=null?ln[c.k]:'';
       const st=`width:${c.w?c.w+'px':'100%'};min-width:56px;padding:5px 7px;border:1px solid var(--borda);border-radius:6px;font-size:12px`;
+      if(c.tipo==='multi'){
+        const sel=Array.isArray(val)?val:(val?String(val).split(/,\s*/):[]);
+        const box=c.opcoes.map(o=>`<label style="display:flex;align-items:center;gap:6px;font-size:12px;white-space:nowrap;cursor:pointer"><input type="checkbox" data-k="${c.k}" value="${esc(o)}" ${sel.indexOf(o)>=0?'checked':''}>${esc(o)}</label>`).join('');
+        return `<td><div style="width:${c.w?c.w+'px':'210px'};display:flex;flex-direction:column;gap:3px">${box}</div></td>`;
+      }
       if(c.tipo==='select'){
         const opts=`<option value="">—</option>`+c.opcoes.map(o=>`<option value="${esc(o)}" ${String(val)===o?'selected':''}>${esc(o)}</option>`).join('');
         return `<td><select data-k="${c.k}" style="${st}">${opts}</select></td>`;
@@ -2483,17 +2606,22 @@ function salvarNota(){
   const dataNS=(document.getElementById("notaData").value||"").trim();
   if(!rodovia){ toast("Informe a rodovia"); return; }
   const cols=CAMPOS_NOTA[notaFrente].cols;
-  const itens=notaLinhas.map(ln=>{ const o=Object.assign({}, ln); cols.forEach(c=>{ o[c.k]=(ln[c.k]!=null?String(ln[c.k]).trim():""); }); if((notaFrente==="horizontal"||notaFrente==="revisao") && o.medicao==null) o.medicao=""; return o; })
-    .filter(o=> cols.some(c=> o[c.k]!==""));
+  const preenchido=(o,c)=> c.tipo==='multi' ? (Array.isArray(o[c.k])&&o[c.k].length>0) : o[c.k]!=="";
+  const itens=notaLinhas.map(ln=>{ const o=Object.assign({}, ln);
+      cols.forEach(c=>{ if(c.tipo==='multi') o[c.k]=Array.isArray(ln[c.k])?ln[c.k]:(ln[c.k]?String(ln[c.k]).split(/,\s*/):[]);
+                        else o[c.k]=(ln[c.k]!=null?String(ln[c.k]).trim():""); });
+      if((notaFrente==="horizontal"||notaFrente==="revisao") && o.medicao==null) o.medicao=""; return o; })
+    .filter(o=> cols.some(c=> preenchido(o,c)));
   if(!itens.length){ toast("Adicione ao menos um item preenchido"); return; }
   const id = notaEditId || ("man_"+notaFrente+"_"+Date.now());
   const def={ frente:notaFrente, rodovia, dataNS, itens };
+  if(notaFrente==="tachas") def.tipoTacha=(document.getElementById("notaTipoTacha").value||"Tachas e Tachões");
   registrarNotaManual(id, def);
   ordenarManifests();
   nuvemEnviar([{frente:"__nota__", ns:id, item:"meta", obs: JSON.stringify(def)}]);
   document.getElementById("dlgNota").close();
   toast(notaEditId? "NS manual atualizada" : "NS manual cadastrada");
-  if(notaFrente==="vertical") viewVertical(); else if(notaFrente==="defensa") viewDefensas(); else if(notaFrente==="revisao") viewRevisao(); else viewHorizontal();
+  if(notaFrente==="vertical") viewVertical(); else if(notaFrente==="defensa") viewDefensas(); else if(notaFrente==="revisao") viewRevisao(); else if(notaFrente==="tachas") viewTachas(); else viewHorizontal();
 }
 function editarNota(id){ abrirNota(null, id); }
 function excluirNota(id){
@@ -2503,7 +2631,7 @@ function excluirNota(id){
   removerNotaManualLocal(id);
   try{ document.getElementById("dlgNota").close(); }catch(e){}
   toast("NS manual excluída");
-  if(frente==="vertical") viewVertical(); else if(frente==="defensa") viewDefensas(); else if(frente==="horizontal") viewHorizontal(); else if(frente==="revisao") viewRevisao(); else viewHome();
+  if(frente==="vertical") viewVertical(); else if(frente==="defensa") viewDefensas(); else if(frente==="horizontal") viewHorizontal(); else if(frente==="revisao") viewRevisao(); else if(frente==="tachas") viewTachas(); else viewHome();
 }
 
 /* ================= RELATÓRIOS (registro + link do Drive) ================= */
