@@ -2458,9 +2458,9 @@ function renderTachasNS(){
   const acoes=`<div style="margin-left:auto;display:flex;gap:8px"><button class="btn" onclick="editarNota('${tachasAtual}')">✎ Editar NS</button><button class="btn" onclick="excluirNota('${tachasAtual}')">🗑 Excluir</button></div>`;
   document.getElementById("view").innerHTML=`
     <div class="pagehd"><div><h2>${esc(ns.rodovia)}</h2><div class="sb">${esc(ns.tipoTacha||'Tachas e Tachões')}${ns.dataNS?' · '+esc(ns.dataNS):''} · ${s.medidas}/${s.total} concluídos (${s.pct}%)</div></div>${acoes}</div>
-    <div class="hint">Ajuste a <b>Situação</b> e a <b>Data de conclusão</b> direto na tabela. Para mudar km ou dispositivos, use <b>Editar NS</b>.</div>
+    <div class="hint">Preencha a <b>Medição</b> quando o trecho for medido — a <b>Situação</b> vira "Concluído" sozinha. A <b>Data de conclusão</b> é separada. Para editar km/dispositivos/situação, use <b>Editar NS</b>.</div>
     <div class="toolbar">${pills.join('')}</div>
-    <table><thead><tr><th style="width:34px">#</th><th>km (início → fim)</th><th>Dispositivos</th><th style="width:130px">Situação</th><th style="width:120px">Data concl.</th></tr></thead>
+    <table><thead><tr><th style="width:34px">#</th><th>km (início → fim)</th><th>Dispositivos</th><th style="width:104px">Situação</th><th style="width:104px">Data concl.</th><th style="width:96px">Medição</th></tr></thead>
     <tbody id="tbTc"></tbody></table>`;
   renderTachasItens();
 }
@@ -2468,20 +2468,17 @@ function renderTachasItens(){
   const ns=tachasCache[tachasAtual]; const its=ns.itens||[];
   const tb=document.getElementById("tbTc");
   const rows=its.map((it,i)=>({it,i})).filter(({it})=> tachasFiltro==='todas' || sitEfetivaHoriz(it)===tachasFiltro);
-  if(!rows.length){ tb.innerHTML=`<tr><td colspan="5" class="empty">Nenhum trecho neste filtro.</td></tr>`; return; }
-  const OPTS=["Aguardando","Iniciado","Concluído"];
+  if(!rows.length){ tb.innerHTML=`<tr><td colspan="6" class="empty">Nenhum trecho neste filtro.</td></tr>`; return; }
   tb.innerHTML=rows.map(({it,i})=>{
     const km=`${esc(it.kmIni||'—')} → ${esc(it.kmFim||'—')}`;
-    const sit=it.situacao||'Aguardando';
-    const selSit=`<select class="med-inp" style="width:118px" onchange="setTachaCampo(${i},'situacao',this.value)">`+
-      OPTS.map(o=>`<option ${sit===o?'selected':''}>${o}</option>`).join('')+`</select>`;
-    const inpData=`<input class="med-inp" style="width:104px" value="${esc(it.dataConclusao||'')}" placeholder="dd/mm/aa" onchange="setTachaCampo(${i},'dataConclusao',this.value)">`;
-    return `<tr><td class="muted">${i+1}</td><td>${km}</td><td class="sup" style="max-width:280px">${esc(dispTxt(it.dispositivos)||'—')}</td><td>${selSit}</td><td>${inpData}</td></tr>`;
+    const medCel=`<input class="med-inp" type="number" min="1" value="${it.medicao!=null&&it.medicao!==''?esc(String(it.medicao)):''}" placeholder="—" onchange="setTachaMedInline(${i}, this.value)" title="Digite a medição — a situação vira Concluído">`;
+    return `<tr><td class="muted">${i+1}</td><td>${km}</td><td class="sup" style="max-width:280px">${esc(dispTxt(it.dispositivos)||'—')}</td><td>${seloSit(sitEfetivaHoriz(it))}</td><td>${esc(it.dataConclusao||'—')}</td><td>${medCel}</td></tr>`;
   }).join('');
 }
-function setTachaCampo(idx, campo, val){
+function setTachaMedInline(idx, val){
   const def=manualDefs[tachasAtual]; if(!def||!def.itens[idx]) return;
-  def.itens[idx][campo]=String(val).trim();
+  val=String(val).trim();
+  def.itens[idx].medicao = (val===''||Number(val)<=0) ? '' : val;
   nuvemEnviar([{frente:"__nota__", ns:tachasAtual, item:"meta", obs: JSON.stringify(def)}]);
   renderTachasNS();
 }
@@ -2532,7 +2529,7 @@ const CAMPOS_NOTA = {
     {k:"kmIni", t:"km inicial", ph:"10+000", w:92},
     {k:"kmFim", t:"km final", ph:"12+000", w:92},
     {k:"dispositivos", t:"Dispositivos", tipo:"multi", w:210, opcoes:["Tacha Bi Tipo III ou IV","Tacha Bi Tipo II","Tacha Mono Tipo III ou IV","Tacha Mono Tipo II","Tachão Bi","Tachão Mono"]},
-    {k:"situacao", t:"Situação", tipo:"select", opcoes:["Aguardando","Iniciado","Concluído"], w:118},
+    {k:"situacao", t:"Situação", tipo:"select", opcoes:["Aguardando","Iniciado"], w:118},
     {k:"dataConclusao", t:"Data conclusão", ph:"dd/mm/aa", w:104},
   ]},
 };
@@ -2610,7 +2607,7 @@ function salvarNota(){
   const itens=notaLinhas.map(ln=>{ const o=Object.assign({}, ln);
       cols.forEach(c=>{ if(c.tipo==='multi') o[c.k]=Array.isArray(ln[c.k])?ln[c.k]:(ln[c.k]?String(ln[c.k]).split(/,\s*/):[]);
                         else o[c.k]=(ln[c.k]!=null?String(ln[c.k]).trim():""); });
-      if((notaFrente==="horizontal"||notaFrente==="revisao") && o.medicao==null) o.medicao=""; return o; })
+      if((notaFrente==="horizontal"||notaFrente==="revisao"||notaFrente==="tachas") && o.medicao==null) o.medicao=""; return o; })
     .filter(o=> cols.some(c=> preenchido(o,c)));
   if(!itens.length){ toast("Adicione ao menos um item preenchido"); return; }
   const id = notaEditId || ("man_"+notaFrente+"_"+Date.now());
