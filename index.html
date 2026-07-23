@@ -181,6 +181,9 @@
   #toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);background:#1f2d3d;color:#fff;padding:11px 18px;border-radius:10px;font-size:14px;opacity:0;pointer-events:none;transition:.25s;z-index:50;max-width:90%}
   #toast.show{opacity:1}
   .empty{padding:40px;text-align:center;color:var(--cinza)}
+  .atchips{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+  .atchip{background:#f1f4f8;border:1px solid var(--borda);border-radius:999px;padding:3px 9px;font-size:12px;cursor:pointer}
+  .atchip:hover{background:#e7edf5}
 </style>
 </head>
 <body>
@@ -580,8 +583,7 @@ function fecharSide(){ document.body.classList.remove("side-open"); }
 document.addEventListener("click", function(e){ if(e.target.closest("#nav a") && window.innerWidth<=860) fecharSide(); });
 function buscaGlobal(){
   const q=(document.getElementById("topSearch").value||"").trim();
-  viewVertical();
-  const b=document.getElementById("buscaNS"); if(b){ b.value=q; renderListaNS(); }
+  viewBuscaRodovia(q);
 }
 
 /* ---------- carregamento do contrato (financeiro / curva S) ---------- */
@@ -622,6 +624,76 @@ function svgCurva(pts){
     <path class="lp" d="${linha('previstoAcum')}"/>
     <path class="le" d="${linha('executadoAcum')}"/>
   </svg>`;
+}
+
+/* ===== helpers compartilhados por frente (abrir NS + estatística) ===== */
+const FR_OPEN = {Vertical:"viewNS", Horizontal:"viewHorizNS", Dispositivos:"viewDefNS", Tachas:"viewTachasNS", "Revisão":"viewRevNS"};
+const FR_STAT = {Vertical:statNS, Horizontal:statHoriz, Dispositivos:statDef, Tachas:statTachas, "Revisão":statRev};
+function abrirNSporFrente(frL, id){ const fn=window[FR_OPEN[frL]]; if(fn) fn(id); }
+
+/* ===== #1 PRECISA DE ATENÇÃO: pendências administrativas ===== */
+function nsConcluida(it){ const f=FR_STAT[it.frL]; const s=f?f(it.id):null; return !!(s && s.total>0 && s.pct===100); }
+function dadosAtencao(){
+  const todas=todasNS();
+  const semData=todas.filter(n=>!String(n.dataNS||'').trim());
+  const vals=dadosValidades();
+  const vVenc=vals.filter(v=>v.dias!=null && v.dias<0);
+  const vProx=vals.filter(v=>v.dias!=null && v.dias>=0 && v.dias<=90);
+  const semFech=[];
+  todas.forEach(n=>{ if(!nsConcluida(n)) return; const c=controleNS[n.id]||{};
+    const falta=[]; if(!c.assinada) falta.push('assinatura'); if(!c.relatorio) falta.push('relatório');
+    if(falta.length) semFech.push(Object.assign({falta:falta.join(' e ')}, n)); });
+  const g=[];
+  if(vVenc.length) g.push({ic:'⏳', cor:'b-vermelho', tit:'Validades vencidas', itens:vVenc.map(v=>({rot:v.rodovia, det:'vencida há '+(-v.dias)+' d', go:'viewValidades()'}))});
+  if(vProx.length) g.push({ic:'⏳', cor:'b-amarelo', tit:'Validades vencendo (≤ 90 dias)', itens:vProx.map(v=>({rot:v.rodovia, det:'vence em '+v.dias+' d', go:'viewValidades()'}))});
+  if(semData.length) g.push({ic:'📅', cor:'b-amarelo', tit:'NS sem data cadastrada', itens:semData.map(n=>({rot:n.rodovia, det:n.frL, go:"abrirNSporFrente('"+n.frL+"','"+n.id+"')"}))});
+  if(semFech.length) g.push({ic:'📝', cor:'b-amarelo', tit:'NS concluídas sem fechar', itens:semFech.map(n=>({rot:n.rodovia, det:n.frL+' · falta '+n.falta, go:"abrirNSporFrente('"+n.frL+"','"+n.id+"')"}))});
+  return g;
+}
+function panelAtencao(){
+  const g=dadosAtencao();
+  if(!g.length) return `<div class="panel" style="margin-bottom:18px;border-left:4px solid var(--verde)"><h3>✅ Tudo em dia</h3><div class="muted" style="font-size:13px">Nenhuma pendência administrativa no momento.</div></div>`;
+  const total=g.reduce((s,x)=>s+x.itens.length,0);
+  const linhas=g.map(gr=>{
+    const chips=gr.itens.slice(0,16).map(it=>`<span class="atchip" onclick="${it.go}">${esc(it.rot)}${it.det?` <span class="muted" style="font-weight:500">· ${esc(it.det)}</span>`:''}</span>`).join('');
+    const mais=gr.itens.length>16?` <span class="muted">+${gr.itens.length-16}</span>`:'';
+    return `<div class="it"><div class="fi">${gr.ic}</div><div style="flex:1"><div class="ft">${esc(gr.tit)} <span class="badge ${gr.cor}">${gr.itens.length}</span></div><div class="atchips">${chips}${mais}</div></div></div>`;
+  }).join('');
+  return `<div class="panel" style="margin-bottom:18px;border-left:4px solid #d9a400"><h3>⚠️ Precisa de atenção <span class="badge b-amarelo">${total}</span></h3><div class="feed">${linhas}</div></div>`;
+}
+
+/* ===== #2 BUSCA GLOBAL POR RODOVIA ===== */
+function normRodQ(s){ return String(s||'').toUpperCase().replace(/[^A-Z0-9]/g,''); }
+function viewBuscaRodovia(q){
+  setNav("", "Busca por rodovia");
+  setCrumbs([{t:"Dashboard", go:"viewDashboard()"},{t:'Busca por rodovia'}]);
+  document.getElementById("view").innerHTML=`
+    <div class="pagehd"><div><h2>Busca por rodovia</h2><div class="sb">Todas as notas de serviço da rodovia, em todas as frentes</div></div></div>
+    <div class="toolbar"><input class="busca" id="buscaRodIn" placeholder="Digite a rodovia (ex.: PR-506)…" oninput="renderBuscaRodovia()"></div>
+    <div id="buscaRodOut"></div>`;
+  const inp=document.getElementById("buscaRodIn"); inp.value=q||""; renderBuscaRodovia(); inp.focus();
+}
+function renderBuscaRodovia(){
+  const q=normRodQ(document.getElementById("buscaRodIn").value);
+  const out=document.getElementById("buscaRodOut");
+  if(!q){ out.innerHTML=`<div class="empty">Digite uma rodovia para ver todas as NS dela.</div>`; return; }
+  let lista=todasNS().filter(n=>normRodQ(n.rodovia).includes(q));
+  lista.sort((a,b)=> a.rodovia.localeCompare(b.rodovia,'pt') || String(a.frL).localeCompare(String(b.frL),'pt'));
+  if(!lista.length){ out.innerHTML=`<div class="empty">Nenhuma NS encontrada para "${esc(document.getElementById("buscaRodIn").value)}".</div>`; return; }
+  const rods=[...new Set(lista.map(n=>n.rodovia))];
+  const linhas=lista.map(n=>{
+    const st=(FR_STAT[n.frL]||(()=>({total:0,medidas:0,pct:0})))(n.id);
+    const cor=st.pct===100?'var(--verde)':(st.medidas===0?'var(--cinza)':'var(--azul)');
+    const c=controleNS[n.id]||{};
+    const ctrl=CTRL_COLS.map(col=>`<span title="${esc(col[1])}" style="color:${c[col[0]]?'var(--verde)':'#c2cad4'}">${c[col[0]]?'●':'○'} ${esc(col[1])}</span>`).join('&nbsp;&nbsp;');
+    return `<tr class="nsrow" onclick="abrirNSporFrente('${n.frL}','${n.id}')">
+      <td>${n.ic} <b>${esc(n.rodovia)}</b><div class="muted" style="font-size:12px">${esc(n.frL)}</div></td>
+      <td class="muted">${n.dataNS?esc(n.dataNS):'—'}</td>
+      <td style="min-width:150px"><div style="display:flex;align-items:center;gap:8px"><div class="prog" style="flex:1"><i style="width:${st.pct}%;background:${cor}"></i></div><span style="white-space:nowrap;font-weight:700">${st.medidas}/${st.total}</span></div></td>
+      <td style="font-size:11px;white-space:nowrap">${ctrl}</td></tr>`;
+  }).join('');
+  out.innerHTML=`<div class="muted" style="margin:4px 2px 10px;font-size:13px">${lista.length} NS em ${rods.length} rodovia(s): <b>${rods.map(esc).join(', ')}</b></div>
+    <table><thead><tr><th>Rodovia / Frente</th><th>Data</th><th>Andamento</th><th>Controle</th></tr></thead><tbody>${linhas}</tbody></table>`;
 }
 
 /* ================= DASHBOARD ================= */
@@ -723,6 +795,7 @@ function viewDashboard(){
         <div class="sb">DER/PR – Departamento de Estradas de Rodagem do Paraná${contrato?'':'  ·  <span style="color:var(--vermelho)">dados do contrato não carregados</span>'}</div></div>
     </div>
     ${kpis}
+    ${panelAtencao()}
     ${cardsHtml}
     ${resumoPanel}
     <div class="grid3">${feed}${chartPanel}${pendPanel}</div>`;
