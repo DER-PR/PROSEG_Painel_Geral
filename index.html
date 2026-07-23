@@ -865,6 +865,100 @@ function viewHome(){
     ).join('')+`</div>`;
 }
 
+/* ===== TRAVA DE MEDIÇÃO (vertical) =====
+   Gera os arquivos <rodovia>.fechadas.json para o app dos meninos: {índice: medição}.
+   O índice da placa no painel (_ordem) == índice no app — verificado por conteúdo
+   (código+km) para cada rodovia deste mapa. A assinatura (sig) trava qualquer
+   divergência futura: se a placa do painel mudar, a rodovia é pulada com aviso,
+   nunca gera trava errada. Rodovias fora do mapa (conteúdo diverge do app ou não
+   existem lá) também são puladas. */
+const TRAVA_MAP = [
+  {id:"pr_090_novo", arq:"PR-090", n:283, sig:2542078239},
+  {id:"pr_092_novo", arq:"PR-092", n:1419, sig:2379624379},
+  {id:"pr_151_novo", arq:"PR-151", n:616, sig:3510758752},
+  {id:"pr_170_novo", arq:"PR-170", n:1234, sig:3570446645},
+  {id:"pr_280_trecho_2_antigo", arq:"PRC-280-T2-Antiga", n:25, sig:903845604},
+  {id:"pr_281_novo", arq:"PR-281-Nova", n:188, sig:3217316866},
+  {id:"pr_340_novo", arq:"PR-340-Nova", n:75, sig:979995651},
+  {id:"pr_340_antigo", arq:"PR-340-Antiga", n:13, sig:3888813299},
+  {id:"pr_410_novo", arq:"PR-410", n:206, sig:2746957264},
+  {id:"pr_412_novo", arq:"PR-412", n:254, sig:1960919541},
+  {id:"pr_419_novo", arq:"PR-419", n:132, sig:1721944254},
+  {id:"pr_420_novo", arq:"PR-420", n:36, sig:2205453838},
+  {id:"pr_427_novo", arq:"PR-427-Nova", n:154, sig:4151766769},
+  {id:"pr_427_antigo", arq:"PR-427-Antiga", n:10, sig:3668318628},
+  {id:"pr_433_novo", arq:"PR-433-Nova", n:54, sig:3317235495},
+  {id:"pr_433_antigo", arq:"PR-433-Antiga", n:2, sig:2294752728},
+  {id:"pr_446_novo", arq:"PR-446-Nova", n:87, sig:3461408734},
+  {id:"pr_446_antigo", arq:"PR-446-Antiga", n:10, sig:2012141061},
+  {id:"pr_447_novo", arq:"PR-447-Nova", n:154, sig:326536195},
+  {id:"pr_447_antigo", arq:"PR-447-Antiga", n:13, sig:2972374240},
+  {id:"pr_510_novo", arq:"PR-510", n:330, sig:2823886969},
+  {id:"pr_800_novo", arq:"PR-800-Nova", n:110, sig:941184666},
+  {id:"pr_800_antigo", arq:"PR-800-Antiga", n:6, sig:25808393},
+  {id:"pr_802_novo", arq:"PR-802-Nova", n:46, sig:2376831191},
+  {id:"pr_802_antigo", arq:"PR-802-Antiga", n:9, sig:4115185302},
+  {id:"pr_831_novo", arq:"PR-831-Nova", n:31, sig:4184779552},
+  {id:"pr_831_antigo", arq:"PR-831-Antiga", n:2, sig:3333208971},
+  {id:"pr_836_novo", arq:"PR-836-Nova", n:17, sig:2841601263},
+  {id:"pr_836_antigo", arq:"PR-836-Antiga", n:5, sig:248206372},
+  {id:"pr_838_novo", arq:"PR-838-Nova", n:81, sig:3941513068},
+  {id:"pr_838_antigo", arq:"PR-838-Antiga", n:6, sig:1240464222},
+  {id:"prc_280_trecho_1", arq:"PRC-280-T1", n:35, sig:149007205},
+  {id:"prc_280_trecho_2", arq:"PRC-280-T2-Nova", n:153, sig:3954753316},
+  {id:"prc_466_novo", arq:"PRC-466-Nova", n:47, sig:121091943},
+  {id:"prc_476_novo", arq:"PRC-476-Nova", n:230, sig:3133992715},
+  {id:"prc_476_antigo", arq:"PRC-476-Antiga", n:56, sig:559012421},
+  {id:"pr_506_novo", arq:"PR-506", n:387, sig:3965049197},
+];
+/* mesma função da geração do mapa (Python): hash da sequência código|km */
+function travaSig(ns){
+  const pl=(ns.placas||[]).slice().sort((a,b)=>(a._ordem||0)-(b._ordem||0));
+  const s=pl.map(p=>String(p.codigo||'').trim()+'|'+String(p.km||'').trim()).join('\n');
+  let x=5381; for(let i=0;i<s.length;i++){ x=((x*33)+s.charCodeAt(i))>>>0; } return x;
+}
+async function gerarTravaVertical(){
+  if(typeof JSZip==='undefined'){ toast("Biblioteca indisponível (sem internet?)"); return; }
+  toast("Gerando travas…");
+  const zip=new JSZip(); const feitos=[], pulados=[];
+  const porId={}; TRAVA_MAP.forEach(t=>porId[t.id]=t);
+  // 1) rodovias verificadas COM medição
+  for(const t of TRAVA_MAP){
+    const med=medicoes[t.id]; if(!med || !Object.keys(med).length) continue;   // sem placa medida
+    let ns; try{ ns=await carregarNS(t.id); }catch(e){ pulados.push(t.arq+" (falha ao carregar)"); continue; }
+    if((ns.placas||[]).length!==t.n || travaSig(ns)!==t.sig){
+      pulados.push(t.arq+" (conteúdo divergiu do app — conferir)"); continue;
+    }
+    // {índice: medição}, só índices válidos, ordenados
+    const obj={}; Object.keys(med).map(Number).filter(k=>k>=0&&k<t.n).sort((a,b)=>a-b)
+      .forEach(k=>{ obj[k]=med[String(k)]; });
+    if(!Object.keys(obj).length) continue;
+    zip.file(t.arq+".fechadas.json", JSON.stringify(obj));
+    feitos.push({arq:t.arq, n:Object.keys(obj).length});
+  }
+  // 2) rodovias com medição que NÃO estão no mapa verificado
+  manifest.forEach(m=>{ const med=medicoes[m.id];
+    if(med && Object.keys(med).length && !porId[m.id]) pulados.push((m.rodovia+' '+(m.trecho||'')).trim()+" (fora do mapa verificado)"); });
+
+  if(!feitos.length){ toast("Nenhuma placa medida para travar"); }
+  else{
+    const blob=await zip.generateAsync({type:"blob",compression:"DEFLATE"});
+    const hoje=new Date().toISOString().slice(0,10);
+    const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download="travas_vertical_"+hoje+".zip";
+    document.body.appendChild(a); a.click(); setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); },1500);
+  }
+  // resumo
+  const linhas=feitos.map(f=>`<tr><td><b>${esc(f.arq)}</b></td><td style="text-align:right">${f.n} placas 🔒</td></tr>`).join('');
+  const av=pulados.length? `<div class="hint" style="margin-top:12px">⚠️ Puladas (não geradas): ${pulados.map(esc).join(' · ')}</div>` : '';
+  document.getElementById("view").insertAdjacentHTML('afterbegin',
+    `<div class="panel" id="travaResumo" style="margin-bottom:14px;border-left:4px solid var(--verde)">
+      <h3>🔒 Trava gerada — ${feitos.length} rodovia(s) <span class="see" onclick="document.getElementById('travaResumo').remove()">fechar</span></h3>
+      ${feitos.length? `<table style="margin-top:4px"><tbody>${linhas}</tbody></table>
+      <p class="muted" style="font-size:13px;margin:10px 2px 0">Baixou <b>travas_vertical_${new Date().toISOString().slice(0,10)}.zip</b>. Suba os arquivos <b>.fechadas.json</b> para a pasta <b>rodovias/</b> do app dos meninos (repositório PROSEG_NS_Vertical).</p>`:''}
+      ${av}
+    </div>`);
+}
+
 /* Lista de NS de sinalização vertical */
 function viewVertical(){
   atualNS=null;
@@ -883,6 +977,7 @@ function viewVertical(){
     <div class="toolbar">
       <input class="busca" id="buscaNS" placeholder="Buscar rodovia (ex.: PR-281)…" oninput="renderListaNS()">
       <button class="btn" onclick="viewPlacasPorMedicao()">🔎 Placas por medição</button>
+      <button class="btn" onclick="gerarTravaVertical()">🔒 Gerar trava da medição</button>
     </div>
     <table>
       <thead><tr><th>Rodovia</th><th>NS</th><th style="text-align:right">Placas</th><th>Andamento</th></tr></thead>
