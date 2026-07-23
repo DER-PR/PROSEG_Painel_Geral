@@ -535,6 +535,7 @@ const NAV = [
   {grp:"Gestão do contrato", itens:[
     {id:"dashboard", t:"Dashboard", ic:"🏠", go:"viewDashboard()"},
     {id:"notas", t:"Notas de Serviço", ic:"📋", go:"viewHome()"},
+    {id:"mapa", t:"Mapa", ic:"🗺️", go:"viewMapa()"},
     {id:"controle", t:"Controle de NS", ic:"✅", go:"viewControleNS()"},
     {id:"diario", t:"Diário de Obras", ic:"📓", go:"viewDiario()"},
     {id:"validades", t:"Validades Horizontal", ic:"⏳", go:"viewValidades()"},
@@ -694,6 +695,96 @@ function renderBuscaRodovia(){
   }).join('');
   out.innerHTML=`<div class="muted" style="margin:4px 2px 10px;font-size:13px">${lista.length} NS em ${rods.length} rodovia(s): <b>${rods.map(esc).join(', ')}</b></div>
     <table><thead><tr><th>Rodovia / Frente</th><th>Data</th><th>Andamento</th><th>Controle</th></tr></thead><tbody>${linhas}</tbody></table>`;
+}
+
+/* ===== #5 MAPA (Leaflet sob demanda) ===== */
+let _leafletP=null, _mapa=null, _mapaLayer=null;
+function carregarLeaflet(){
+  if(window.L) return Promise.resolve();
+  if(_leafletP) return _leafletP;
+  _leafletP=new Promise((res,rej)=>{
+    const css=document.createElement('link'); css.rel='stylesheet';
+    css.href='https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'; document.head.appendChild(css);
+    const js=document.createElement('script'); js.src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+    js.onload=()=>res(); js.onerror=()=>rej(new Error('Leaflet indisponível (sem internet?)'));
+    document.head.appendChild(js);
+  });
+  return _leafletP;
+}
+function rodoviasComCoord(){
+  const set=new Set();
+  manifest.forEach(m=>set.add(m.rodovia));
+  defManifest.forEach(m=>set.add(m.rodovia));
+  return [...set].sort((a,b)=>a.localeCompare(b,'pt'));
+}
+function viewMapa(){
+  atualNS=null; defAtual=null;
+  setNav("mapa","Mapa");
+  setCrumbs([{t:"Dashboard", go:"viewDashboard()"},{t:"Mapa"}]);
+  const rods=rodoviasComCoord();
+  const opts=rods.map(r=>`<option value="${esc(r)}">${esc(r)}</option>`).join('');
+  document.getElementById("view").innerHTML=`
+    <div class="pagehd"><div><h2>Mapa</h2><div class="sb">Placas e defensas georreferenciadas, por situação de medição</div></div></div>
+    <div class="toolbar">
+      <label style="font-weight:600;font-size:13px">Rodovia:</label>
+      <select id="mapaRod" onchange="plotMapa()" style="padding:7px 9px;border:1px solid var(--borda);border-radius:8px;font-size:14px">${opts}</select>
+      <label style="font-size:13px;display:flex;align-items:center;gap:5px"><input type="checkbox" id="mapaVert" checked onchange="plotMapa()"> 🚦 Vertical</label>
+      <label style="font-size:13px;display:flex;align-items:center;gap:5px"><input type="checkbox" id="mapaDef" checked onchange="plotMapa()"> 🛡️ Defensas</label>
+      <span style="margin-left:auto;font-size:12px;white-space:nowrap"><b style="color:#16a34a">●</b> medido &nbsp; <b style="color:#f59e0b">●</b> pendente</span>
+    </div>
+    <div id="mapaInfo" class="muted" style="font-size:13px;margin:0 2px 8px">Carregando mapa…</div>
+    <div id="mapaBox" style="height:70vh;min-height:420px;border:1px solid var(--borda);border-radius:12px;overflow:hidden;background:#eef1f3"></div>`;
+  carregarLeaflet().then(()=>{
+    _mapa=L.map('mapaBox',{preferCanvas:true}).setView([-25.4,-49.3],8);
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19, attribution:'© OpenStreetMap'}).addTo(_mapa);
+    _mapaLayer=L.layerGroup().addTo(_mapa);
+    plotMapa();
+  }).catch(e=>{ document.getElementById('mapaInfo').textContent='Erro ao carregar o mapa: '+((e&&e.message)||e); });
+}
+async function plotMapa(){
+  if(!_mapa||!window.L) return;
+  const rod=document.getElementById('mapaRod').value;
+  const verV=document.getElementById('mapaVert').checked;
+  const verD=document.getElementById('mapaDef').checked;
+  const info=document.getElementById('mapaInfo');
+  _mapaLayer.clearLayers(); info.textContent='Carregando…';
+  const bounds=[]; let nP=0,nPm=0,nT=0,nTm=0;
+  const num=v=>{ const x=parseFloat(String(v==null?'':v).replace(',','.')); return isFinite(x)?x:null; };
+  if(verV){
+    for(const m of manifest.filter(m=>m.rodovia===rod)){
+      let ns; try{ ns=await carregarNS(m.id);}catch(e){ continue; }
+      const med=medicoes[m.id]||{};
+      (ns.placas||[]).forEach(p=>{
+        const la=num(p.latitude), lo=num(p.longitude); if(la==null||lo==null) return;
+        const medida = med[p._ordem]!=null; nP++; if(medida) nPm++; bounds.push([la,lo]);
+        const cor=medida?'#16a34a':'#f59e0b';
+        L.circleMarker([la,lo],{radius:4,color:cor,weight:1,fillColor:cor,fillOpacity:.85})
+          .bindPopup(`<b>${esc(p.codigo||'—')}</b><br>km ${esc(p.km||'—')}<br>${medida?'🟢 Medida (med '+med[p._ordem]+')':'🟠 Pendente'}`)
+          .addTo(_mapaLayer);
+      });
+    }
+  }
+  if(verD){
+    for(const m of defManifest.filter(m=>m.rodovia===rod)){
+      let ns; try{ ns=await carregarDefNS(m.id);}catch(e){ continue; }
+      const med=defMedicoes[m.id]||{};
+      (ns.itens||[]).forEach((it,i)=>{
+        const la1=num(it.latI),lo1=num(it.lonI),la2=num(it.latF),lo2=num(it.lonF);
+        if(la1==null||lo1==null) return;
+        const medido=med[i]!=null; nT++; if(medido) nTm++;
+        const cor=medido?'#16a34a':'#f59e0b';
+        const pts=(la2!=null&&lo2!=null)?[[la1,lo1],[la2,lo2]]:[[la1,lo1]];
+        pts.forEach(pt=>bounds.push(pt));
+        const pop=`<b>Tramo ${esc(it.tramo||'—')}</b><br>km ${esc(it.kmIni||'—')} → ${esc(it.kmFim||'—')}<br>${medido?'🟢 Medido':'🟠 Pendente'}`;
+        if(pts.length===2) L.polyline(pts,{color:cor,weight:5,opacity:.9}).bindPopup(pop).addTo(_mapaLayer);
+        else L.circleMarker(pts[0],{radius:5,color:cor,weight:1,fillColor:cor,fillOpacity:.85}).bindPopup(pop).addTo(_mapaLayer);
+      });
+    }
+  }
+  if(bounds.length) _mapa.fitBounds(bounds,{padding:[30,30],maxZoom:16});
+  info.innerHTML = bounds.length
+    ? `<b>${esc(rod)}</b> — 🚦 ${nP} placas (${nPm} medidas) · 🛡️ ${nT} tramos de defensa (${nTm} medidos)`
+    : `<b>${esc(rod)}</b> — sem coordenadas para exibir nesta seleção.`;
 }
 
 /* ================= DASHBOARD ================= */
