@@ -346,10 +346,12 @@
 const DADOS = "dados/vertical/";
 const LS_KEY = "proseg_painel_vertical_medicoes_v1";
 const LS_OBS = "proseg_painel_vertical_obs_v1";
+const LS_MEDD = "proseg_painel_vertical_meddados_v1";
 let manifest = [];          // lista de NS
 let nsCache = {};           // id -> objeto NS carregado
 let medicoes = {};          // id -> { ordem(str) -> numMedicao }
 let observacoes = {};       // id -> { ordem(str) -> texto }
+let medDados = {};          // id -> { ordem(str) -> {coluna->valor} } linha do CSV do app, p/ o relatório da medição
 let atualNS = null;         // id da NS aberta
 let filtroMed = "todas";    // 'todas' | 'pendentes' | número
 
@@ -457,7 +459,7 @@ async function nuvemCarregar(){
   const r = await fetch(PONTE + "?senha=" + encodeURIComponent(senhaNuvem));
   const j = await r.json();
   if(j.erro) throw new Error(j.erro);
-  medicoes={}; observacoes={}; defMedicoes={}; horizMedicoes={};
+  medicoes={}; observacoes={}; defMedicoes={}; horizMedicoes={}; medDados={};
   const linhas = j.dados||[];
   // 1ª passada: NS manuais (definição no obs) — registra antes das medições
   limparNotasManuais();
@@ -487,9 +489,11 @@ async function nuvemCarregar(){
       if(d.medicao!==""&&d.medicao!=null){ (defMedicoes[d.ns]=defMedicoes[d.ns]||{})[item]=Number(d.medicao); }
     } else if(d.frente==="horizontal"){
       if(d.medicao!==""&&d.medicao!=null){ (horizMedicoes[d.ns]=horizMedicoes[d.ns]||{})[item]=Number(d.medicao); }
+    } else if(d.frente==="__medvert__"){
+      if(d.obs!==""&&d.obs!=null){ try{ (medDados[d.ns]=medDados[d.ns]||{})[item]=JSON.parse(d.obs); }catch(e){} }
     }
   });
-  salvarMed(); salvarObs(); salvarDefMed(); salvarHorizMed(); salvarRel();
+  salvarMed(); salvarObs(); salvarDefMed(); salvarHorizMed(); salvarRel(); salvarMedD();
 }
 function ordenarManifests(){
   manifest.sort((a,b)=> (a.rodovia+(a.trecho||"")).localeCompare(b.rodovia+(b.trecho||""),'pt'));
@@ -952,7 +956,9 @@ function viewCronograma(){
 
 /* ---------- persistência ---------- */
 function carregarMed(){ try{ medicoes = JSON.parse(localStorage.getItem(LS_KEY))||{}; }catch(e){ medicoes={}; }
-  try{ observacoes = JSON.parse(localStorage.getItem(LS_OBS))||{}; }catch(e){ observacoes={}; } }
+  try{ observacoes = JSON.parse(localStorage.getItem(LS_OBS))||{}; }catch(e){ observacoes={}; }
+  try{ medDados = JSON.parse(localStorage.getItem(LS_MEDD))||{}; }catch(e){ medDados={}; } }
+function salvarMedD(){ try{ localStorage.setItem(LS_MEDD, JSON.stringify(medDados)); }catch(e){} }
 function salvarMed(){ localStorage.setItem(LS_KEY, JSON.stringify(medicoes)); }
 function salvarObs(){ localStorage.setItem(LS_OBS, JSON.stringify(observacoes)); }
 function setObs(ordem, val){
@@ -1191,6 +1197,7 @@ function viewPlacasPorMedicao(med){
   document.getElementById("view").innerHTML=`
     <div class="pagehd"><div><h2>Placas por medição</h2><div class="sb">Todas as placas medidas numa medição, somando as rodovias</div></div></div>
     <div class="toolbar"><span class="muted" style="font-size:13px">Medição:</span> ${sel}
+      <button class="btn pri" onclick="baixarMedicaoVert(filtroVertMed)">⬇ Baixar medição (Excel)</button>
       <div style="flex:1"></div>
       <button class="btn" onclick="viewVertical()">← Voltar às rodovias</button></div>
     ${meds.length? `<div class="hint" id="globHint">Carregando…</div>
@@ -1198,6 +1205,50 @@ function viewPlacasPorMedicao(med){
       <tbody id="tbGlob"><tr><td colspan="5" class="empty">Carregando…</td></tr></tbody></table>`
     : `<div class="empty" style="padding:24px">Nenhuma medição lançada ainda nas placas de sinalização vertical.</div>`}`;
   if(meds.length && filtroVertMed!=null) renderPlacasPorMedicao(filtroVertMed);
+}
+/* colunas do relatório da medição (mesma ordem do CSV do app) */
+const MEDVERT_COLS=["Rodovia","Eixo","Placa","Km","Fração","Suporte","Qtde Suporte","Altura do Suporte","Casca de Pinus","Tipo Película","Área (m²)","Fotos","Observação","Km Instalado (S/N)","Medição","Empresa","Técnico","Data/Hora","Latitude","Longitude","Precisão GPS (m)"];
+async function baixarMedicaoVert(medNum){
+  medNum=Number(medNum);
+  if(!medNum){ toast("Selecione a medição"); return; }
+  if(typeof XLSX==='undefined'){ toast("Biblioteca indisponível (sem internet?)"); return; }
+  function pega(obj, col){ if(!obj) return ""; if(obj[col]!=null) return obj[col];
+    const lc=col.toLowerCase(); for(const k in obj){ if(String(k).toLowerCase()===lc) return obj[k]; } return ""; }
+  const rows=[]; let nManual=0;
+  for(const id of Object.keys(medicoes)){
+    const m=manifest.find(x=>x.id===id); if(!m) continue;
+    const o=medicoes[id]||{};
+    const ords=Object.keys(o).filter(k=>Number(o[k])===medNum);
+    if(!ords.length) continue;
+    let ns; try{ ns=await carregarNS(id); }catch(e){ continue; }
+    for(const k of ords){
+      const ord=Number(k);
+      const salvo=(medDados[id]||{})[k] || (medDados[id]||{})[ord];
+      let r, kmStr;
+      if(salvo){
+        r=MEDVERT_COLS.map(c=> c==="Medição"? medNum : pega(salvo,c));
+        kmStr=String(pega(salvo,"Km")||"").trim()+"+"+String(pega(salvo,"Fração")||"").trim();
+      } else {
+        const p=(ns.placas||[]).find(x=>x._ordem===ord)||{};
+        kmStr=String(p.km||"");
+        const parts=kmStr.split('+');
+        const base={ "Rodovia":m.rodovia, "Eixo":p.eixo||"", "Placa":p.codigo||p.col_3||"",
+          "Km":(parts[0]||"").trim(), "Fração":(parts[1]||"").trim(), "Suporte":p.tipo||"",
+          "Qtde Suporte":(p.qtde_un!=null?p.qtde_un:""), "Tipo Película":p.tipo_de_pelicula||"",
+          "Área (m²)":p.area_m||"", "Medição":medNum, "Latitude":p.latitude||"", "Longitude":p.longitude||"" };
+        r=MEDVERT_COLS.map(c=> base[c]!=null?base[c]:"");
+        nManual++;
+      }
+      rows.push({rod:m.rodovia, kmn:kmParaNum(kmStr), r});
+    }
+  }
+  if(!rows.length){ toast("Nenhuma placa marcada na medição "+medNum); return; }
+  rows.sort((a,b)=> String(a.rod).localeCompare(String(b.rod),'pt') || ((a.kmn==null?1e9:a.kmn)-(b.kmn==null?1e9:b.kmn)));
+  const aoa=[MEDVERT_COLS].concat(rows.map(x=>x.r));
+  const ws=XLSX.utils.aoa_to_sheet(aoa);
+  const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, "VERTICAL");
+  XLSX.writeFile(wb, "Medicao_"+medNum+"_Vertical.xlsx");
+  toast(rows.length+" placa(s) na medição "+medNum+(nManual?" · "+nManual+" manual/incompleta(s)":"")+" — baixado");
 }
 async function renderPlacasPorMedicao(medNum){
   medNum=Number(medNum);
@@ -1358,12 +1409,14 @@ function processarImport(){
     let linhas;
     try{ linhas = parseCSV(reader.result); }catch(e){ toast("Não consegui ler o CSV"); return; }
     if(linhas.length<2){ toast("CSV vazio ou sem dados"); return; }
-    const head = linhas[0].map(h=>h.trim().toLowerCase());
+    const cab = linhas[0].map(h=>String(h).trim());           // cabeçalho original (p/ guardar a linha)
+    const head = cab.map(h=>h.toLowerCase());
     const iCod = head.findIndex(h=> h==='placa' || h==='código' || h==='codigo');
     const iKm  = head.findIndex(h=> h==='km');
     const iFr  = head.findIndex(h=> h==='fração' || h==='fracao');
     if(iCod<0){ toast("Não achei a coluna Placa/Código no CSV"); return; }
     const ns = nsCache[atualNS];
+    if(!medDados[atualNS]) medDados[atualNS]={};
     // índice das placas da NS por código -> lista de _ordem (na ordem do km)
     const porCod = {};
     ns.placas.forEach(p=>{ const c=(p.codigo||p.col_3||'').trim(); if(!porCod[c])porCod[c]=[]; porCod[c].push(p); });
@@ -1386,9 +1439,13 @@ function processarImport(){
       usados[alvo._ordem]=true;
       medicoes[atualNS][alvo._ordem]=medNum;
       mudancas.push({frente:"vertical", ns:atualNS, item:alvo._ordem, medicao:medNum});
+      // guarda a linha inteira do CSV (p/ o relatório da medição)
+      const linhaObj={}; cab.forEach((h,j)=>{ if(h) linhaObj[h]=(linhas[i][j]!=null?String(linhas[i][j]):""); });
+      medDados[atualNS][alvo._ordem]=linhaObj;
+      mudancas.push({frente:"__medvert__", ns:atualNS, item:alvo._ordem, medicao:medNum, obs:JSON.stringify(linhaObj)});
       casadas++;
     }
-    salvarMed(); nuvemEnviar(mudancas);
+    salvarMed(); salvarMedD(); nuvemEnviar(mudancas);
     document.getElementById("dlgImport").close();
     toast(`Medição ${medNum}: ${casadas} placa(s) marcada(s)`+(naoCasadas?` · ${naoCasadas} não encontrada(s)`:''));
     renderNS();
