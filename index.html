@@ -543,6 +543,7 @@ const NAV = [
     {id:"controle", t:"Controle de NS", ic:"✅", go:"viewControleNS()"},
     {id:"diario", t:"Diário de Obras", ic:"📓", go:"viewDiario()"},
     {id:"validades", t:"Validades Horizontal", ic:"⏳", go:"viewValidades()"},
+    {id:"conferencia", t:"Conferência de placas", ic:"🔎", go:"viewConferencia()"},
     {id:"medicoes", t:"Medições", ic:"📊", soon:true},
     {id:"relatorios", t:"Relatórios", ic:"📄", go:"viewRelatorios()"},
     {id:"financeiro", t:"Financeiro", ic:"💰", go:"viewFinanceiro()"},
@@ -2597,6 +2598,259 @@ async function gerarDiario(){
       `</tbody></table>`;
     toast("Diário gerado: "+nome);
   }catch(e){ console.error(e); info.textContent="Erro: "+((e&&e.message)||e); toast("Falha ao gerar o diário"); }
+}
+
+/* ===================================================================
+   CONFERÊNCIA DE PLACAS
+   Compara a SUA planilha de medição (uma só, com várias rodovias) com
+   as planilhas da EXECUTORA (uma por rodovia, ou uma com várias abas —
+   pode enviar quantas quiser de uma vez). Para cada rodovia da
+   executora, filtra a rodovia correspondente na sua planilha e lista
+   as placas que estão em uma e não na outra.
+   =================================================================== */
+let cfUltimo=null;   // guarda o resultado da última comparação p/ exportar
+
+/* normaliza o código da placa p/ comparação: maiúsculas, sem espaços */
+function cfNormCod(s){ return String(s==null?'':s).toUpperCase().replace(/\s+/g,'').trim(); }
+/* chave de rodovia estável: PR-090 / PR 90 / PR090 → "PR90" (tira zero à esquerda) */
+function cfRodKey(s){
+  const t=String(s==null?'':s).toUpperCase();
+  const m=t.match(/([A-Z]{2,3})\s*-?\s*0*(\d+)/);
+  if(m) return m[1]+parseInt(m[2],10);
+  return t.replace(/[^A-Z0-9]/g,'');
+}
+/* rótulo bonito da rodovia: "PR-506" */
+function cfRodLabel(s){
+  const t=String(s==null?'':s).toUpperCase();
+  const m=t.match(/([A-Z]{2,3})\s*-?\s*(\d+)/);
+  return m? (m[1]+'-'+m[2]) : String(s==null?'':s).trim();
+}
+function cfSemAcento(s){ return String(s==null?'':s).normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().trim(); }
+function cfKm(km,fr){
+  km=String(km==null?'':km).trim(); fr=String(fr==null?'':fr).trim();
+  if(!km && !fr) return '';
+  return fr? (km+'+'+fr) : km;
+}
+
+/* lê a SUA planilha (aba VERTICAL, ou a 1ª): agrupa por rodovia */
+function cfLerMinha(wb){
+  const nome = wb.SheetNames.indexOf('VERTICAL')>=0 ? 'VERTICAL' : wb.SheetNames[0];
+  const aoa = XLSX.utils.sheet_to_json(wb.Sheets[nome], {header:1, raw:false, defval:''});
+  const out={};
+  if(!aoa.length) return out;
+  const hdr = (aoa[0]||[]).map(cfSemAcento);
+  const iRod = hdr.indexOf('rodovia');
+  let iCod = hdr.indexOf('placa'); if(iCod<0) iCod=hdr.indexOf('codigo');
+  const iKm = hdr.indexOf('km');
+  const iFr = hdr.findIndex(h=>h.indexOf('fra')===0);   // fração
+  if(iCod<0) return out;
+  for(let r=1;r<aoa.length;r++){
+    const row=aoa[r]||[];
+    const cod=row[iCod];
+    if(!String(cod==null?'':cod).trim()) continue;
+    const rod=iRod>=0? row[iRod] : '';
+    const k=cfRodKey(rod);
+    if(!k) continue;
+    (out[k]||(out[k]={label:cfRodLabel(rod), itens:[]})).itens.push({
+      cod:cfNormCod(cod), raw:String(cod).trim(),
+      km: cfKm(iKm>=0?row[iKm]:'', iFr>=0?row[iFr]:'')
+    });
+  }
+  return out;
+}
+
+/* lê UMA aba da executora → {rodTxt, itens:[{cod,km}]} ou null */
+function cfLerExecAba(aoa){
+  let hrow=-1, iCod=-1, iKm=-1;
+  const N=Math.min(aoa.length, 40);
+  for(let r=0;r<N;r++){
+    const row=(aoa[r]||[]).map(cfSemAcento);
+    let ic=row.indexOf('codigo'); if(ic<0) ic=row.indexOf('placa');
+    if(ic>=0){ hrow=r; iCod=ic; break; }
+  }
+  if(hrow<0) return null;
+  /* coluna de km / localização, procurada em torno do cabeçalho */
+  for(let r=Math.max(0,hrow-1); r<=hrow+2 && r<aoa.length; r++){
+    (aoa[r]||[]).map(cfSemAcento).forEach((c,i)=>{
+      if(iKm<0 && (c==='km' || c.indexOf('localiza')===0)) iKm=i;
+    });
+  }
+  /* rodovia: procura "Rodovia: PR-xxx" nas primeiras linhas */
+  let rodTxt='';
+  for(let r=0;r<Math.min(aoa.length,14) && !rodTxt;r++){
+    for(const c of (aoa[r]||[])){
+      const m=String(c==null?'':c).match(/rodovia[:\s]+([A-Za-z]{2,3}\s*-?\s*\d+)/i);
+      if(m){ rodTxt=m[1]; break; }
+    }
+  }
+  const itens=[];
+  for(let r=hrow+1;r<aoa.length;r++){
+    const row=aoa[r]||[];
+    const codS=String(row[iCod]==null?'':row[iCod]).trim();
+    if(!codS) continue;
+    if(/^coluna\d+$/i.test(codS)) continue;
+    const cs=cfSemAcento(codS);
+    if(cs==='codigo'||cs==='placa') continue;
+    itens.push({ cod:cfNormCod(codS), raw:codS, km:String((iKm>=0?row[iKm]:'')||'').trim() });
+  }
+  return {rodTxt, itens};
+}
+
+/* lê TODAS as planilhas da executora (vários arquivos / várias abas) */
+async function cfLerExecutoras(files){
+  const map={};   // rodKey -> {label, itens, arqs}
+  const naoLidos=[];
+  for(const f of files){
+    let wb;
+    try{ wb=XLSX.read(new Uint8Array(await f.arrayBuffer()),{type:'array'}); }
+    catch(e){ naoLidos.push(f.name); continue; }
+    let achou=false;
+    for(const sn of wb.SheetNames){
+      const aoa=XLSX.utils.sheet_to_json(wb.Sheets[sn],{header:1,raw:false,defval:''});
+      const p=cfLerExecAba(aoa);
+      if(!p || !p.itens.length) continue;
+      /* rodovia: usa "Rodovia:" da planilha; senão nome da aba; senão nome do arquivo */
+      let rodSrc = p.rodTxt || (/\d/.test(sn)? sn : f.name);
+      let k = cfRodKey(rodSrc);
+      if(!k){ k=cfRodKey(f.name); rodSrc=f.name; }
+      const g = map[k] || (map[k]={label:cfRodLabel(rodSrc), itens:[], arqs:[]});
+      p.itens.forEach(it=>g.itens.push(it));
+      if(g.arqs.indexOf(f.name)<0) g.arqs.push(f.name);
+      achou=true;
+    }
+    if(!achou) naoLidos.push(f.name);
+  }
+  return {map, naoLidos};
+}
+
+/* conta ocorrências por código, guardando os km */
+function cfContar(itens){
+  const m={};
+  itens.forEach(it=>{
+    const e=m[it.cod]||(m[it.cod]={n:0, kms:[], raw:it.raw});
+    e.n++; if(it.km && e.kms.indexOf(it.km)<0) e.kms.push(it.km);
+  });
+  return m;
+}
+
+/* monta o bloco de uma rodovia: {html, dados} */
+function cfBloco(k, ex, mn){
+  const label=(mn&&mn.label) || (ex&&ex.label) || k;
+  const cEx=ex? cfContar(ex.itens) : {};
+  const cMn=mn? cfContar(mn.itens) : {};
+  const codsEx=Object.keys(cEx), codsMn=Object.keys(cMn);
+  const soEx=codsEx.filter(c=>!(c in cMn)).sort();
+  const soMn=codsMn.filter(c=>!(c in cEx)).sort();
+  const div =codsEx.filter(c=>(c in cMn) && cMn[c].n!==cEx[c].n).sort();
+  const totEx=ex? ex.itens.length:0, totMn=mn? mn.itens.length:0;
+  const comum=codsEx.filter(c=>c in cMn).length;
+
+  const dados={label, arqs:(ex&&ex.arqs)||[], soEx:[], soMn:[], div:[], semMinha:!mn};
+  soEx.forEach(c=>dados.soEx.push({cod:cEx[c].raw, km:cEx[c].kms.join('; '), n:cEx[c].n}));
+  soMn.forEach(c=>dados.soMn.push({cod:cMn[c].raw, km:cMn[c].kms.join('; '), n:cMn[c].n}));
+  div.forEach(c=>dados.div.push({cod:cEx[c].raw, nMin:cMn[c].n, nEx:cEx[c].n}));
+
+  const tab=(titulo, cor, rows, colKm)=>{
+    if(!rows.length) return '';
+    return `<div style="margin-top:10px"><div style="font-weight:700;font-size:13px;margin-bottom:4px">${titulo} <span class="badge ${cor}">${rows.length}</span></div>`+
+      `<table><thead><tr><th>Código</th>${colKm?'<th>Km</th>':''}<th style="width:70px">Qtde</th></tr></thead><tbody>`+
+      rows.map(r=>`<tr><td>${esc(r.cod)}</td>${colKm?`<td class="muted">${esc(r.km||'—')}</td>`:''}<td>${r.n}</td></tr>`).join('')+
+      `</tbody></table></div>`;
+  };
+  const tabDiv=()=>{
+    if(!dados.div.length) return '';
+    return `<div style="margin-top:10px"><div style="font-weight:700;font-size:13px;margin-bottom:4px">Quantidade divergente <span class="badge b-amarelo">${dados.div.length}</span></div>`+
+      `<table><thead><tr><th>Código</th><th style="width:110px">Na minha</th><th style="width:120px">Na executora</th></tr></thead><tbody>`+
+      dados.div.map(r=>`<tr><td>${esc(r.cod)}</td><td>${r.nMin}</td><td>${r.nEx}</td></tr>`).join('')+
+      `</tbody></table></div>`;
+  };
+
+  let corpo='';
+  if(!mn){
+    corpo=`<div class="muted" style="font-size:13px;background:#fdf3e2;border-radius:8px;padding:8px 10px;color:#b5730f">⚠ A rodovia <b>${esc(label)}</b> não foi encontrada na sua planilha de medição. Confira se o nome da rodovia bate.</div>`;
+  } else if(!soEx.length && !soMn.length && !div.length){
+    corpo=`<div class="muted" style="font-size:13px;background:#e6f4ec;border-radius:8px;padding:8px 10px;color:#157347">✓ Tudo bate — as ${comum} placas conferem entre as duas planilhas.</div>`;
+  } else {
+    corpo = tab('Só na executora (falta medir / não está na sua)', 'b-vermelho', dados.soEx, true)
+          + tab('Só na sua (não está na NS da executora)', 'b-azul', dados.soMn, true)
+          + tabDiv();
+  }
+  const html=`<div class="panel" style="margin-bottom:16px">
+    <h3>🚦 ${esc(label)}
+      <span class="see" style="cursor:default;color:var(--cinza);font-weight:600">sua: ${totMn} · executora: ${totEx} · em comum: ${comum}</span></h3>
+    ${corpo}
+  </div>`;
+  return {html, dados};
+}
+
+function viewConferencia(){
+  setNav("conferencia","Conferência de placas");
+  setCrumbs([{t:"Dashboard", go:"viewDashboard()"},{t:"Conferência de placas"}]);
+  document.getElementById("view").innerHTML=`
+    <div class="pagehd"><div><h2>Conferência de placas</h2><div class="sb">Compara a sua medição com a NS da executora e lista o que falta em cada lado</div></div></div>
+    <div style="background:#fff;border:1px solid var(--borda);border-radius:12px;padding:18px;max-width:820px">
+      <p class="muted" style="margin-top:0;font-size:13px">Envie a <b>sua planilha de medição</b> (a que tem <b>várias rodovias</b>, coluna <i>Rodovia</i> + <i>Placa</i>) e <b>uma ou mais planilhas da executora</b> (cada uma de uma rodovia, ou uma com várias abas). Para cada rodovia da executora, o painel filtra a rodovia correspondente na sua planilha e mostra as <b>placas que estão em uma e não na outra</b>. A comparação é pelo <b>código da placa</b> (ignora maiúsculas/minúsculas e espaços).</p>
+      <label>Sua planilha de medição (.xlsx) — com todas as rodovias</label>
+      <input type="file" id="cfMinha" accept=".xlsx" onchange="cfInfoArqs()">
+      <label>Planilha(s) da executora (.xlsx) — pode selecionar várias</label>
+      <input type="file" id="cfExec" accept=".xlsx" multiple onchange="cfInfoArqs()">
+      <p class="muted" id="cfInfo" style="font-size:12px;margin:12px 0 0"></p>
+      <div style="margin-top:14px"><button class="btn pri" onclick="cfComparar()">🔎 Comparar</button></div>
+    </div>
+    <div id="cfOut" style="max-width:820px;margin-top:18px"></div>`;
+}
+function cfInfoArqs(){
+  const fm=document.getElementById("cfMinha").files[0];
+  const fe=document.getElementById("cfExec").files;
+  const nomes=[]; if(fm) nomes.push("sua: "+fm.name);
+  if(fe&&fe.length) nomes.push("executora: "+Array.from(fe).map(f=>f.name).join(", "));
+  document.getElementById("cfInfo").textContent=nomes.join("  ·  ");
+}
+
+async function cfComparar(){
+  const fMin=document.getElementById("cfMinha").files[0];
+  const fsEx=document.getElementById("cfExec").files;
+  const info=document.getElementById("cfInfo"), out=document.getElementById("cfOut");
+  if(typeof XLSX==="undefined"){ toast("Biblioteca indisponível (sem internet?)"); return; }
+  if(!fMin){ toast("Selecione a sua planilha de medição"); return; }
+  if(!fsEx||!fsEx.length){ toast("Selecione ao menos uma planilha da executora"); return; }
+  info.textContent="Comparando…"; out.innerHTML="";
+  try{
+    const wbMin=XLSX.read(new Uint8Array(await fMin.arrayBuffer()),{type:"array"});
+    const minha=cfLerMinha(wbMin);
+    if(!Object.keys(minha).length){ info.textContent="Não achei placas na sua planilha (esperado colunas 'Rodovia' e 'Placa')."; toast("Sua planilha não foi reconhecida"); return; }
+    const {map:exec, naoLidos}=await cfLerExecutoras(fsEx);
+    const rodKeys=Object.keys(exec).sort();
+    if(!rodKeys.length){ info.textContent="Não reconheci nenhuma planilha da executora."; toast("Planilha da executora não reconhecida"); return; }
+    cfUltimo={blocos:[]};
+    let html="";
+    for(const k of rodKeys){
+      const b=cfBloco(k, exec[k], minha[k]);
+      cfUltimo.blocos.push(b.dados);
+      html+=b.html;
+    }
+    if(naoLidos.length) html=`<div class="panel" style="margin-bottom:16px;border-left:4px solid var(--amarelo)"><div class="muted" style="font-size:13px">⚠ Não reconheci como planilha da executora: <b>${esc(naoLidos.join(", "))}</b></div></div>`+html;
+    out.innerHTML = html + `<div style="margin-top:4px"><button class="btn" onclick="cfExportar()">⬇ Baixar comparação (Excel)</button></div>`;
+    info.textContent="✓ "+rodKeys.length+" rodovia(s) comparada(s).";
+  }catch(e){ console.error(e); info.textContent="Erro: "+((e&&e.message)||e); toast("Falha ao comparar"); }
+}
+
+function cfExportar(){
+  if(!cfUltimo || !cfUltimo.blocos.length){ toast("Nada para exportar"); return; }
+  const aoa=[["Rodovia","Situação","Código","Km","Qtde na sua","Qtde na executora"]];
+  cfUltimo.blocos.forEach(b=>{
+    if(b.semMinha){ aoa.push([b.label,"Rodovia não encontrada na sua planilha","","","",""]); return; }
+    b.soEx.forEach(r=>aoa.push([b.label,"Só na executora (falta medir)",r.cod,r.km,"",r.n]));
+    b.soMn.forEach(r=>aoa.push([b.label,"Só na sua (fora da NS da executora)",r.cod,r.km,r.n,""]));
+    b.div.forEach(r=>aoa.push([b.label,"Quantidade divergente",r.cod,"",r.nMin,r.nEx]));
+    if(!b.soEx.length && !b.soMn.length && !b.div.length) aoa.push([b.label,"Tudo confere","","","",""]);
+  });
+  const ws=XLSX.utils.aoa_to_sheet(aoa);
+  ws["!cols"]=[{wch:12},{wch:36},{wch:22},{wch:14},{wch:12},{wch:16}];
+  const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, "Conferência");
+  const hoje=new Date().toISOString().slice(0,10);
+  XLSX.writeFile(wb, "Conferencia_placas_"+hoje+".xlsx");
+  toast("Comparação exportada");
 }
 
 function viewHorizNS(id){
