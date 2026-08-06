@@ -2723,57 +2723,88 @@ async function cfLerExecutoras(files){
   return {map, naoLidos};
 }
 
-/* conta ocorrências por código, guardando os km */
+/* normaliza o km p/ comparação: "13+500,55" → metros arredondados ("13501") */
+function cfKmKey(km){
+  let s=String(km==null?'':km).trim();
+  if(!s) return '';
+  s=s.replace(/\s+/g,'').replace(',', '.');
+  if(s.indexOf('+')>=0){
+    const p=s.split('+');
+    const ki=parseInt(p[0],10)||0;
+    const me=parseFloat(p[1])||0;
+    return String(Math.round(ki*1000+me));
+  }
+  const v=parseFloat(s);
+  return isNaN(v)? s.toUpperCase() : String(Math.round(v));
+}
+/* conta ocorrências por código+km (chave da conferência) */
 function cfContar(itens){
   const m={};
   itens.forEach(it=>{
-    const e=m[it.cod]||(m[it.cod]={n:0, kms:[], raw:it.raw});
-    e.n++; if(it.km && e.kms.indexOf(it.km)<0) e.kms.push(it.km);
+    const kmk=cfKmKey(it.km);
+    const key=it.cod+'@'+kmk;
+    const e=m[key]||(m[key]={n:0, cod:it.raw, km:it.km, kmk});
+    e.n++;
   });
   return m;
 }
+/* conta distintos só por código (usado p/ detectar km desalinhado) */
+function cfSetCod(itens){ const s={}; itens.forEach(it=>s[it.cod]=1); return s; }
 
 /* monta o bloco de uma rodovia: {html, dados} */
 function cfBloco(k, ex, mn){
   const label=(mn&&mn.label) || (ex&&ex.label) || k;
   const cEx=ex? cfContar(ex.itens) : {};
   const cMn=mn? cfContar(mn.itens) : {};
-  const codsEx=Object.keys(cEx), codsMn=Object.keys(cMn);
-  const soEx=codsEx.filter(c=>!(c in cMn)).sort();
-  const soMn=codsMn.filter(c=>!(c in cEx)).sort();
-  const div =codsEx.filter(c=>(c in cMn) && cMn[c].n!==cEx[c].n).sort();
+  const keysEx=Object.keys(cEx), keysMn=Object.keys(cMn);
+  const soEx=keysEx.filter(c=>!(c in cMn));
+  const soMn=keysMn.filter(c=>!(c in cEx));
+  const div =keysEx.filter(c=>(c in cMn) && cMn[c].n!==cEx[c].n);
   const totEx=ex? ex.itens.length:0, totMn=mn? mn.itens.length:0;
-  const comum=codsEx.filter(c=>c in cMn).length;
+  const comum=keysEx.filter(c=>c in cMn).length;   // em comum por código+km
 
-  const dados={label, arqs:(ex&&ex.arqs)||[], soEx:[], soMn:[], div:[], semMinha:!mn};
-  soEx.forEach(c=>dados.soEx.push({cod:cEx[c].raw, km:cEx[c].kms.join('; '), n:cEx[c].n}));
-  soMn.forEach(c=>dados.soMn.push({cod:cMn[c].raw, km:cMn[c].kms.join('; '), n:cMn[c].n}));
-  div.forEach(c=>dados.div.push({cod:cEx[c].raw, nMin:cMn[c].n, nEx:cEx[c].n}));
+  /* salvaguarda: quantos códigos batem ignorando o km? */
+  const sEx=ex? cfSetCod(ex.itens):{}, sMn=mn? cfSetCod(mn.itens):{};
+  const comumCod=Object.keys(sEx).filter(c=>c in sMn).length;
+  const kmSuspeito = mn && comumCod>=5 && comum < comumCod*0.5;
 
-  const tab=(titulo, cor, rows, colKm)=>{
+  const sortRows=arr=>arr.sort((a,b)=>{
+    const ka=parseFloat(a.kmk), kb=parseFloat(b.kmk);
+    if(!isNaN(ka)&&!isNaN(kb)&&ka!==kb) return ka-kb;
+    return String(a.cod).localeCompare(String(b.cod));
+  });
+  const dados={label, arqs:(ex&&ex.arqs)||[], soEx:[], soMn:[], div:[], semMinha:!mn, kmSuspeito};
+  dados.soEx=sortRows(soEx.map(c=>({cod:cEx[c].cod, km:cEx[c].km, kmk:cEx[c].kmk, n:cEx[c].n})));
+  dados.soMn=sortRows(soMn.map(c=>({cod:cMn[c].cod, km:cMn[c].km, kmk:cMn[c].kmk, n:cMn[c].n})));
+  div.forEach(c=>dados.div.push({cod:cEx[c].cod, km:cEx[c].km, nMin:cMn[c].n, nEx:cEx[c].n}));
+
+  const tab=(titulo, cor, rows)=>{
     if(!rows.length) return '';
     return `<div style="margin-top:10px"><div style="font-weight:700;font-size:13px;margin-bottom:4px">${titulo} <span class="badge ${cor}">${rows.length}</span></div>`+
-      `<table><thead><tr><th>Código</th>${colKm?'<th>Km</th>':''}<th style="width:70px">Qtde</th></tr></thead><tbody>`+
-      rows.map(r=>`<tr><td>${esc(r.cod)}</td>${colKm?`<td class="muted">${esc(r.km||'—')}</td>`:''}<td>${r.n}</td></tr>`).join('')+
+      `<table><thead><tr><th style="width:90px">Km</th><th>Código</th></tr></thead><tbody>`+
+      rows.map(r=>`<tr><td>${esc(r.km||'—')}</td><td>${esc(r.cod)}</td></tr>`).join('')+
       `</tbody></table></div>`;
   };
   const tabDiv=()=>{
     if(!dados.div.length) return '';
-    return `<div style="margin-top:10px"><div style="font-weight:700;font-size:13px;margin-bottom:4px">Quantidade divergente <span class="badge b-amarelo">${dados.div.length}</span></div>`+
-      `<table><thead><tr><th>Código</th><th style="width:110px">Na minha</th><th style="width:120px">Na executora</th></tr></thead><tbody>`+
-      dados.div.map(r=>`<tr><td>${esc(r.cod)}</td><td>${r.nMin}</td><td>${r.nEx}</td></tr>`).join('')+
+    return `<div style="margin-top:10px"><div style="font-weight:700;font-size:13px;margin-bottom:4px">Repetidas no mesmo km (qtde diferente) <span class="badge b-amarelo">${dados.div.length}</span></div>`+
+      `<table><thead><tr><th style="width:90px">Km</th><th>Código</th><th style="width:90px">Na sua</th><th style="width:110px">Na executora</th></tr></thead><tbody>`+
+      dados.div.map(r=>`<tr><td>${esc(r.km||'—')}</td><td>${esc(r.cod)}</td><td>${r.nMin}</td><td>${r.nEx}</td></tr>`).join('')+
       `</tbody></table></div>`;
   };
 
   let corpo='';
   if(!mn){
     corpo=`<div class="muted" style="font-size:13px;background:#fdf3e2;border-radius:8px;padding:8px 10px;color:#b5730f">⚠ A rodovia <b>${esc(label)}</b> não foi encontrada na sua planilha de medição. Confira se o nome da rodovia bate.</div>`;
-  } else if(!soEx.length && !soMn.length && !div.length){
-    corpo=`<div class="muted" style="font-size:13px;background:#e6f4ec;border-radius:8px;padding:8px 10px;color:#157347">✓ Tudo bate — as ${comum} placas conferem entre as duas planilhas.</div>`;
   } else {
-    corpo = tab('Só na executora (falta medir / não está na sua)', 'b-vermelho', dados.soEx, true)
-          + tab('Só na sua (não está na NS da executora)', 'b-azul', dados.soMn, true)
-          + tabDiv();
+    if(kmSuspeito) corpo+=`<div class="muted" style="font-size:13px;background:#fdecec;border-radius:8px;padding:8px 10px;color:#c0392b;margin-bottom:8px">⚠ Os <b>km</b> desta rodovia não parecem alinhados entre as duas planilhas (${comumCod} códigos batem, mas só ${comum} batem com o km). Pode ser diferença de formato — confira antes de confiar no resultado.</div>`;
+    if(!soEx.length && !soMn.length && !div.length){
+      corpo+=`<div class="muted" style="font-size:13px;background:#e6f4ec;border-radius:8px;padding:8px 10px;color:#157347">✓ Tudo bate — as ${comum} placas conferem por código e km.</div>`;
+    } else {
+      corpo += tab('Só na executora (falta medir / não está na sua)', 'b-vermelho', dados.soEx)
+            + tab('Só na sua (não está na NS da executora)', 'b-azul', dados.soMn)
+            + tabDiv();
+    }
   }
   const html=`<div class="panel" style="margin-bottom:16px">
     <h3>🚦 ${esc(label)}
@@ -2789,7 +2820,7 @@ function viewConferencia(){
   document.getElementById("view").innerHTML=`
     <div class="pagehd"><div><h2>Conferência de placas</h2><div class="sb">Compara a sua medição com a NS da executora e lista o que falta em cada lado</div></div></div>
     <div style="background:#fff;border:1px solid var(--borda);border-radius:12px;padding:18px;max-width:820px">
-      <p class="muted" style="margin-top:0;font-size:13px">Envie a <b>sua planilha de medição</b> (a que tem <b>várias rodovias</b>, coluna <i>Rodovia</i> + <i>Placa</i>) e <b>uma ou mais planilhas da executora</b> (cada uma de uma rodovia, ou uma com várias abas). Para cada rodovia da executora, o painel filtra a rodovia correspondente na sua planilha e mostra as <b>placas que estão em uma e não na outra</b>. A comparação é pelo <b>código da placa</b> (ignora maiúsculas/minúsculas e espaços).</p>
+      <p class="muted" style="margin-top:0;font-size:13px">Envie a <b>sua planilha de medição</b> (a que tem <b>várias rodovias</b>, coluna <i>Rodovia</i> + <i>Placa</i>) e <b>uma ou mais planilhas da executora</b> (cada uma de uma rodovia, ou uma com várias abas). Para cada rodovia da executora, o painel filtra a rodovia correspondente na sua planilha e mostra as <b>placas que estão em uma e não na outra</b>. A comparação é por <b>código da placa + km</b> (ignora maiúsculas/minúsculas e espaços), então aponta exatamente qual km está faltando.</p>
       <label>Sua planilha de medição (.xlsx) — com todas as rodovias</label>
       <input type="file" id="cfMinha" accept=".xlsx" onchange="cfInfoArqs()">
       <label>Planilha(s) da executora (.xlsx) — pode selecionar várias</label>
@@ -2840,10 +2871,11 @@ function cfExportar(){
   const aoa=[["Rodovia","Situação","Código","Km","Qtde na sua","Qtde na executora"]];
   cfUltimo.blocos.forEach(b=>{
     if(b.semMinha){ aoa.push([b.label,"Rodovia não encontrada na sua planilha","","","",""]); return; }
+    if(b.kmSuspeito) aoa.push([b.label,"⚠ km podem estar desalinhados — conferir","","","",""]);
     b.soEx.forEach(r=>aoa.push([b.label,"Só na executora (falta medir)",r.cod,r.km,"",r.n]));
     b.soMn.forEach(r=>aoa.push([b.label,"Só na sua (fora da NS da executora)",r.cod,r.km,r.n,""]));
-    b.div.forEach(r=>aoa.push([b.label,"Quantidade divergente",r.cod,"",r.nMin,r.nEx]));
-    if(!b.soEx.length && !b.soMn.length && !b.div.length) aoa.push([b.label,"Tudo confere","","","",""]);
+    b.div.forEach(r=>aoa.push([b.label,"Repetida no mesmo km (qtde diferente)",r.cod,r.km,r.nMin,r.nEx]));
+    if(!b.soEx.length && !b.soMn.length && !b.div.length && !b.kmSuspeito) aoa.push([b.label,"Tudo confere","","","",""]);
   });
   const ws=XLSX.utils.aoa_to_sheet(aoa);
   ws["!cols"]=[{wch:12},{wch:36},{wch:22},{wch:14},{wch:12},{wch:16}];
