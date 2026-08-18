@@ -3471,16 +3471,18 @@ function RFservico(name){ let rest=name.replace(/^\s*PR[-\s]?\d+\s*/i,'').trim()
 // ---- Trecho (SNV) da PROD05 via SheetJS ----
 function RFtrechoMaps(wb){
   const snv=/^\d{3}[A-Z]\d{3,4}[A-Z]{2,3}$/;
-  function collect(sheet, rodCol, treCol){ const map={};
-    if(!wb.Sheets[sheet]) return map;
-    const rows=XLSX.utils.sheet_to_json(wb.Sheets[sheet],{header:1,raw:true,defval:''});
-    for(const row of rows){ const rod=row[rodCol], tre=row[treCol];
-      if(typeof rod==='string' && /PR[-\s]?\d+/.test(rod) && typeof tre==='string' && snv.test(tre.trim())){
+  // le por endereco ABSOLUTO de coluna (C/X, D/O) — robusto a colunas vazias no inicio
+  function collect(sheet, rodCol, treCol){ const map={}; const ws=wb.Sheets[sheet];
+    if(!ws||!ws['!ref']) return {};
+    const rng=XLSX.utils.decode_range(ws['!ref']);
+    for(let r=rng.s.r; r<=rng.e.r; r++){ const rc=ws[rodCol+(r+1)], tc=ws[treCol+(r+1)];
+      const rod=rc?String(rc.v):'', tre=tc?String(tc.v).trim():'';
+      if(/PR[-\s]?\d+/.test(rod) && snv.test(tre)){
         const k=rod.trim().toUpperCase().replace(/\s+/g,'-'); (map[k]=map[k]||[]);
-        if(!map[k].includes(tre.trim())) map[k].push(tre.trim()); } }
+        if(!map[k].includes(tre)) map[k].push(tre); } }
     const out={}; for(const k in map) out[k]=map[k].join(' e '); return out;
   }
-  return { V:collect('VERTICAL',2,23), D:collect('DEFENSAS',3,14) };
+  return { V:collect('VERTICAL','C','X'), D:collect('DEFENSAS','D','O') };
 }
 function RFtrechoDe(maps, folder, rodovia){ const low=folder.toLowerCase();
   if(low.includes('vertical')) return maps.V[rodovia]||'';
