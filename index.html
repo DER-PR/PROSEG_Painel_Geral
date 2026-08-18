@@ -3752,6 +3752,82 @@ function RRgerar62(dados, resp, periodo){
   return L.join('\n');
 }
 
+/* ===== FINANCEIRO — Quadro 8 (resumo de medições) da aba "Posição Contratual" ===== */
+const RR_MESAB=['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+function RRbrl(v){ if(v==null||v===''){return '';} const n=Number(v); if(isNaN(n)) return String(v);
+  return 'R$ '+n.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function RRpct(v){ if(v==null||v===''){return '';} const n=Number(v); if(isNaN(n)) return String(v);
+  return (n*100).toFixed(2).replace('.',',')+'%'; }
+function RRperMes(v){ let d=null;
+  if(v instanceof Date) d=v;
+  else if(typeof v==='number' && typeof XLSX!=='undefined' && XLSX.SSF){ const o=XLSX.SSF.parse_date_code(v); if(o) d=new Date(o.y,o.m-1,o.d); }
+  if(!d) return String(v==null?'':v);
+  return RR_MESAB[d.getMonth()]+'/'+String(d.getFullYear()).slice(2);
+}
+function RRlerPosicao(wb){
+  const ws=wb.Sheets['Posição Contratual']; if(!ws||!ws['!ref']) return {itens:[],resumo:null};
+  const rng=XLSX.utils.decode_range(ws['!ref']);
+  let hr=-1; for(let r=rng.s.r;r<=rng.e.r;r++){ const b=ws['B'+(r+1)]; if(b && /Medi/i.test(String(b.v))){ hr=r; break; } }
+  if(hr<0) hr=1;
+  const itens=[]; let resumo=null;
+  for(let r=hr+1;r<=rng.e.r;r++){ const medc=ws['B'+(r+1)]; if(!medc||medc.v==null||medc.v==='') break;
+    const med=String(medc.v).trim();
+    const vc=ws['D'+(r+1)]; const valor=(vc&&vc.v!=null&&vc.v!=='')?vc.v:null;
+    if(valor!=null && !isNaN(Number(valor))){           // linha de medição com valor
+      const l={tipo:'med', med, per:(ws['C'+(r+1)]||{}).v, valor:Number(valor),
+               av:(ws['E'+(r+1)]||{}).v, vac:(ws['F'+(r+1)]||{}).v, avac:(ws['G'+(r+1)]||{}).v};
+      itens.push(l); resumo=l;
+    } else if(!/^\d+\s*[ºªo]/i.test(med)){              // divisor (ex.: "PRORROGAÇÃO NOV/2024...")
+      itens.push({tipo:'sep', texto:med});
+    }                                                    // senão: medição futura sem valor -> ignora
+  }
+  return {itens, resumo};
+}
+function RRsetTr(trXml, vals){
+  let i=0;
+  return trXml.replace(/<w:tc\b[\s\S]*?<\/w:tc>/g, function(tc){
+    const val=i<vals.length?String(vals[i]==null?'':vals[i]):''; i++;
+    let first=true, achou=false;
+    tc=tc.replace(/<w:t\b[^>]*>[\s\S]*?<\/w:t>/g, function(){ achou=true;
+      if(first){ first=false; return '<w:t xml:space="preserve">'+RResc(val)+'</w:t>'; }
+      return '<w:t xml:space="preserve"></w:t>'; });
+    if(!achou){ tc=tc.replace(/(<w:p\b[^>]*>)/, '$1<w:r><w:t xml:space="preserve">'+RResc(val)+'</w:t></w:r>'); }
+    return tc;
+  });
+}
+function RRquadro8(docXml, itens){
+  if(!itens.length) return docXml;
+  const tbls=docXml.match(/<w:tbl>[\s\S]*?<\/w:tbl>/g)||[];
+  let alvo=null;
+  for(const tbl of tbls){ const pt=tbl.replace(/<[^>]+>/g,' ');
+    if(/MEDI/i.test(pt)&&/PER[IÍ]ODO/i.test(pt)&&/ACUMULAD/i.test(pt)&&/VALOR/i.test(pt)){ alvo=tbl; break; } }
+  if(!alvo) return docXml;
+  const trs=alvo.match(/<w:tr\b[\s\S]*?<\/w:tr>/g)||[];
+  if(trs.length<2) return docXml;
+  const header=trs[0]; let tmplMed=trs[1], tmplSep=null;
+  for(const tr of trs.slice(1)){ if(/PRORROGA/i.test(tr.replace(/<[^>]+>/g,' '))){ tmplSep=tr; break; } }
+  if(!tmplSep) tmplSep=tmplMed;
+  const prefix=alvo.slice(0, alvo.indexOf('<w:tr'));
+  const novas=itens.map(it=> it.tipo==='sep'
+    ? RRsetTr(tmplSep, [it.texto])
+    : RRsetTr(tmplMed, [it.med, RRperMes(it.per), RRbrl(it.valor), RRpct(it.av), RRbrl(it.vac), RRpct(it.avac)])
+  ).join('');
+  return docXml.replace(alvo, prefix+header+novas+'</w:tbl>');
+}
+function RRsummaryQ8(docXml, resumo, periodo){
+  if(!resumo) return docXml;
+  const frase=`O Quadro 8 apresentado a seguir exibe um resumo compilado. Atualmente, encontra-se na ${resumo.med} medição, `+
+    `referente ao período ${periodo||'[período]'}, com um valor da medição de ${RRbrl(resumo.valor)} (PI), avanço de ${RRpct(resumo.av)}, `+
+    `valor acumulado de R$: ${RRbrl(resumo.vac).replace('R$ ','')} (PI) e, do valor contratual, atingindo um avanço acumulado de ${RRpct(resumo.avac)}.`;
+  const paras=docXml.match(/<w:p\b[^>]*>[\s\S]*?<\/w:p>/g)||[];
+  for(const p of paras){ if(p.replace(/<[^>]+>/g,'').includes('encontra-se na')){
+    const ppr=(p.match(/<w:pPr>[\s\S]*?<\/w:pPr>/)||[''])[0];
+    const novo=`<w:p>${ppr}<w:r><w:rPr><w:rFonts w:ascii="Montserrat" w:hAnsi="Montserrat"/></w:rPr><w:t xml:space="preserve">${RResc(frase)}</w:t></w:r></w:p>`;
+    return docXml.replace(p, novo);
+  } }
+  return docXml;
+}
+
 /* ---- injeção no docx ---- */
 function RRruns(text){
   let out='';
@@ -3795,7 +3871,7 @@ function RRmesDePeriodo(periodo){ // "01/07/2026 a 31/07/2026" -> "julho de 2026
   return `${RR_MESES[mes-1]} de ${m[2]}`;
 }
 
-async function RRinjetar(templateArrayBuffer, texto62, periodo, medicao){
+async function RRinjetar(templateArrayBuffer, texto62, periodo, medicao, planilhaWb){
   const zip=await JSZip.loadAsync(templateArrayBuffer);
   // cabeçalho: período + medição via propriedades do documento
   const coreFile=zip.file('docProps/core.xml');
@@ -3816,7 +3892,10 @@ async function RRinjetar(templateArrayBuffer, texto62, periodo, medicao){
   }
   if(iIni<0||iFim<0) throw new Error('não localizei a seção 6.2 no modelo (ini='+iIni+', fim='+iFim+')');
   const novo=RRtextoParaParagrafos(texto62);
-  const doc2=doc.slice(0,paras[iIni].s)+novo+doc.slice(paras[iFim].s);
+  let doc2=doc.slice(0,paras[iIni].s)+novo+doc.slice(paras[iFim].s);
+  // financeiro: Quadro 8 + parágrafo-resumo (se a planilha de medição foi enviada)
+  if(planilhaWb){ const pc=RRlerPosicao(planilhaWb);
+    if(pc.itens.length){ doc2=RRquadro8(doc2, pc.itens); doc2=RRsummaryQ8(doc2, pc.resumo, periodo); } }
   zip.file('word/document.xml', doc2);
   return await zip.generateAsync({type:'blob',compression:'DEFLATE'});
 }
@@ -3846,6 +3925,8 @@ function viewGerarRelatorio(){
         <div style="min-width:90px"><label>Medição</label><input type="text" id="rrMed" placeholder="57"></div>
         <div style="flex:1;min-width:200px"><label>Período</label><input type="text" id="rrPer" placeholder="01/06/2026 a 30/06/2026"></div>
       </div>
+      <label style="margin-top:12px">Planilha de Medição (.xlsx) — para o financeiro/Quadro 8 <span class="muted">(opcional)</span></label>
+      <input type="file" id="rrPlan" accept=".xlsx">
       <p class="muted" id="rrInfo" style="font-size:12px;margin:10px 0 0"></p>
     </div>
     <div id="rrForm" style="max-width:900px"></div>
@@ -3951,13 +4032,16 @@ async function rrGerar(){
   try{
     const resp=rrColeta();
     const texto=RRgerar62(RR_DADOS, resp, per||'[período]');
+    // planilha de medição (financeiro), se enviada
+    let planWb=null; const fPlan=document.getElementById('rrPlan').files[0];
+    if(fPlan && typeof XLSX!=='undefined') planWb=XLSX.read(new Uint8Array(await fPlan.arrayBuffer()),{type:"array",cellDates:true});
     const tpl=await (await fetch("dados/registro/modelo_relatorio.docx",{cache:"no-store"})).arrayBuffer();
-    const blob=await RRinjetar(tpl, texto, per, med);
+    const blob=await RRinjetar(tpl, texto, per, med, planWb);
     const nome=`Relatorio_Supervisao${med?'_Med'+med:''}.docx`;
     const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=nome;
     document.body.appendChild(a); a.click(); setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); },1500);
     out.innerHTML=`<div class="panel" style="border-left:4px solid var(--verde)"><h3>✓ Gerado: ${esc(nome)}</h3>
-      <div class="muted" style="font-size:13px">Cabeçalho (período/medição) e o texto do 6.2 já vêm preenchidos. Abra no Word, complete as <span style="background:#ff0;padding:0 3px">lacunas amarelas</span> e insira as imagens do mês. O financeiro entra na próxima versão.</div></div>`;
+      <div class="muted" style="font-size:13px">Cabeçalho, texto do 6.2 ${fPlan?'e o Quadro 8 (financeiro)':''} já vêm preenchidos. Abra no Word, complete as <span style="background:#ff0;padding:0 3px">lacunas amarelas</span> e insira as imagens do mês.</div></div>`;
     toast("Word gerado");
   }catch(e){ console.error(e); out.innerHTML=`<div class="hint" style="border-color:var(--vermelho)">Erro: ${esc((e&&e.message)||e)}</div>`; toast("Falha ao gerar"); }
 }
