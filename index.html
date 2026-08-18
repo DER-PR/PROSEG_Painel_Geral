@@ -3828,6 +3828,27 @@ function RRsummaryQ8(docXml, resumo, periodo){
   return docXml;
 }
 
+/* ===== grifar em amarelo os itens que a usuária insere na mão (imagens) ===== */
+function RRgrifarRuns(pXml){
+  return pXml.replace(/<w:r\b([^>]*)>([\s\S]*?)<\/w:r>/g, function(m, attrs, inner){
+    if(/<w:rPr\/>/.test(inner)) inner=inner.replace('<w:rPr/>', '<w:rPr><w:highlight w:val="yellow"/></w:rPr>');
+    else if(/<w:rPr>/.test(inner)) inner=inner.replace('<w:rPr>', '<w:rPr><w:highlight w:val="yellow"/>');
+    else inner='<w:rPr><w:highlight w:val="yellow"/></w:rPr>'+inner;
+    return '<w:r'+attrs+'>'+inner+'</w:r>';
+  });
+}
+function RRgrifarPendentes(docXml){
+  // legendas (estilo "Legenda") das imagens que a usuária insere na mão
+  const descr=['Cronograma Físico Financeiro Previsto','Cronograma Físico Financeiro Executado',
+    'Quadro de Execução Física','Execução Orçamentária','Curva','Indicador de Segurança'];
+  return docXml.replace(/<w:p\b[^>]*>[\s\S]*?<\/w:p>/g, function(p){
+    if(!/w:pStyle w:val="Legenda"/.test(p)) return p;   // só parágrafos de legenda
+    const txt=p.replace(/<[^>]+>/g,'');
+    if(descr.some(d=>txt.includes(d))) return RRgrifarRuns(p);
+    return p;
+  });
+}
+
 /* ---- injeção no docx ---- */
 function RRruns(text){
   let out='';
@@ -3896,6 +3917,7 @@ async function RRinjetar(templateArrayBuffer, texto62, periodo, medicao, planilh
   // financeiro: Quadro 8 + parágrafo-resumo (se a planilha de medição foi enviada)
   if(planilhaWb){ const pc=RRlerPosicao(planilhaWb);
     if(pc.itens.length){ doc2=RRquadro8(doc2, pc.itens); doc2=RRsummaryQ8(doc2, pc.resumo, periodo); } }
+  doc2=RRgrifarPendentes(doc2);   // grifa legendas das imagens que a usuária insere na mão
   zip.file('word/document.xml', doc2);
   return await zip.generateAsync({type:'blob',compression:'DEFLATE'});
 }
