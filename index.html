@@ -546,6 +546,7 @@ const NAV = [
     {id:"conferencia", t:"Conferência de placas", ic:"🔎", go:"viewConferencia()"},
     {id:"medicoes", t:"Medições", ic:"📊", soon:true},
     {id:"relatorios", t:"Relatórios", ic:"📄", go:"viewRelatorios()"},
+    {id:"registrofoto", t:"Registro Fotográfico", ic:"📸", go:"viewRegistroFoto()"},
     {id:"financeiro", t:"Financeiro", ic:"💰", go:"viewFinanceiro()"},
     {id:"cronograma", t:"Cronograma", ic:"📈", go:"viewCronograma()"},
   ]},
@@ -3329,6 +3330,312 @@ async function iniciar(){
   }
   viewLogin();
 }
+/* ===== Registro Fotográfico (ferramenta) ===== */
+/* ===================== REGISTRO FOTOGRÁFICO (PROSEG) =====================
+   Gera o Excel do registro fotográfico a partir de uma pasta-mãe com
+   subpastas "PR-XXX Serviço" + a planilha PROD05 (trechos). Padrão do
+   departamento (aba BASE do template_base.xlsx). Porte do protótipo Python. */
+
+const RF_DEPARA = {
+  'vertical':'Sinalização Vertical','horizontal':'Sinalização Horizontal',
+  'defensas':'Defensas Metálicas','defensa':'Defensas Metálicas','def':'Defensas Metálicas',
+  'inovacao':'Inovação Tecnológica','inovação':'Inovação Tecnológica','inovaço':'Inovação Tecnológica',
+  'projeto':'Revisão de Projeto','tachas':'Instalação de Tachas','apoio':'Apoio a Sinalização'
+};
+const RF_SUPERVISORA='Consórcio Simemp/Neoconstec - Supervisão';
+const RF_CONTRATO='122/2021DOP';
+const RF_PAGE_END=[60,120,179,239,298,356];
+const RF_PAGE_FOTO_TOP=[13,73,132,192,251,310];
+const RF_BOX_BOTTOM={B:36,C:95,D:96,E:96,F:96,G:97,H:143,I:144,J:144,K:144,L:145,M:59,
+  N:95,O:96,P:96,Q:96,R:97,S:143,T:144,U:144,V:144,W:145,X:58};
+
+// helpers de coluna 0-based (espelham o Python)
+function RFcl(c0){ let s='',n=c0+1; while(n){ const r=(n-1)%26; s=String.fromCharCode(65+r)+s; n=(n-r-1)/26|0; } return s; }
+function RFcn(s){ let n=0; for(const ch of s) n=n*26+(ch.charCodeAt(0)-64); return n-1; }
+function RFparseRef(ref){ const m=ref.match(/([A-Z]+)(\d+)/); return [RFcn(m[1]), parseInt(m[2],10)-1]; }
+
+// 36 blocos de foto: [col0, block_top]
+const RF_BLOCKS=(function(){ const out=[]; for(let p=0;p<6;p++){ const label0=RF_PAGE_FOTO_TOP[p]-1;
+  [0,16,32].forEach(off=>{ const bt=label0+off+1; out.push([2,bt]); out.push([13,bt]); }); } return out; })();
+
+function RFcaptionRefs(col0, bt){
+  return { foto:`${RFcl(col0)}${bt}`, locLbl:`${RFcl(col0)}${bt+12}`, desLbl:`${RFcl(col0+5)}${bt+12}`,
+           locVal:`${RFcl(col0)}${bt+13}`, desVal:`${RFcl(col0+5)}${bt+13}` }; }
+
+function RFesc(t){ return String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+function RFsetCell(xml, ref, text){
+  const [col0,row0]=RFparseRef(ref), rownum=row0+1;
+  const re=new RegExp('<c r="'+ref+'"([^>]*?)(?:/>|>[\\s\\S]*?</c>)');
+  const m=xml.match(re);
+  const styOf=a=>{ const sm=a.match(/\ss="(\d+)"/); return sm?` s="${sm[1]}"`:''; };
+  if(m){ const cell=`<c r="${ref}"${styOf(m[1])} t="inlineStr"><is><t xml:space="preserve">${RFesc(text)}</t></is></c>`;
+    return xml.slice(0,m.index)+cell+xml.slice(m.index+m[0].length); }
+  const cell=`<c r="${ref}" t="inlineStr"><is><t xml:space="preserve">${RFesc(text)}</t></is></c>`;
+  const rre=new RegExp('(<row r="'+rownum+'"[^>]*>)([\\s\\S]*?)(</row>)');
+  const rm=xml.match(rre);
+  if(rm){ let body=rm[2], ins=body.length, cm, cre=/<c r="([A-Z]+)\d+"/g;
+    while((cm=cre.exec(body))){ if(RFcn(cm[1])>col0){ ins=cm.index; break; } }
+    const nb=body.slice(0,ins)+cell+body.slice(ins);
+    return xml.slice(0,rm.index)+rm[1]+nb+rm[3]+xml.slice(rm.index+rm[0].length); }
+  return xml;
+}
+function RFclearCell(xml, ref){
+  const re=new RegExp('<c r="'+ref+'"([^>]*?)(?:/>|>[\\s\\S]*?</c>)'); const m=xml.match(re);
+  if(!m) return xml; const sm=m[1].match(/\ss="(\d+)"/); const s=sm?` s="${sm[1]}"`:'';
+  return xml.slice(0,m.index)+`<c r="${ref}"${s}/>`+xml.slice(m.index+m[0].length);
+}
+function RFsetStyle(xml, ref, sidx){
+  const cell=`<c r="${ref}" s="${sidx}"/>`;
+  const re=new RegExp('<c r="'+ref+'"(?:[^>]*?)(?:/>|>[\\s\\S]*?</c>)'); const m=xml.match(re);
+  if(m) return xml.slice(0,m.index)+cell+xml.slice(m.index+m[0].length);
+  const [col0,row0]=RFparseRef(ref), rownum=row0+1;
+  const rm=xml.match(new RegExp('(<row r="'+rownum+'"[^>]*>)([\\s\\S]*?)(</row>)'));
+  if(rm){ let body=rm[2], ins=body.length, cm, cre=/<c r="([A-Z]+)\d+"/g;
+    while((cm=cre.exec(body))){ if(RFcn(cm[1])>col0){ ins=cm.index; break; } }
+    return xml.slice(0,rm.index)+rm[1]+body.slice(0,ins)+cell+body.slice(ins)+rm[3]+xml.slice(rm.index+rm[0].length); }
+  return xml;
+}
+function RFblankRect(xml, c0a, c0b, ra, rb){
+  for(let r=ra;r<=rb;r++) for(let c=c0a;c<=c0b;c++){ const ref=`${RFcl(c)}${r}`;
+    const re=new RegExp('<c r="'+ref+'"(?:[^>]*?)(?:/>|>[\\s\\S]*?</c>)'); const m=xml.match(re);
+    if(m) xml=xml.slice(0,m.index)+`<c r="${ref}" s="0"/>`+xml.slice(m.index+m[0].length); }
+  return xml;
+}
+function RFcloseBox(xml, trimRow, rightEmpty){
+  for(const col in RF_BOX_BOTTOM){ let s=RF_BOX_BOTTOM[col];
+    if(rightEmpty && 'MNOPQRSTUVW'.includes(col)) s=96;
+    xml=RFsetStyle(xml, col+trimRow, s); }
+  return xml;
+}
+function RFtruncate(xml, lastRow){
+  xml=xml.replace(/<dimension ref="[A-Z]+\d+:[A-Z]+\d+"/, `<dimension ref="B1:AC${lastRow}"`);
+  xml=xml.replace(/<row r="(\d+)"[^>]*?(?:\/>|>[\s\S]*?<\/row>)/g, m=>{
+    const rn=parseInt(m.match(/r="(\d+)"/)[1],10); return rn>lastRow?'':m; });
+  xml=xml.replace(/<mergeCell ref="([A-Z]+\d+):[A-Z]+\d+"\/>/g, m=>{
+    const r0=parseInt(m.match(/[A-Z]+(\d+)/)[1],10); return r0>lastRow?'':m; });
+  const cnt=(xml.match(/<mergeCell /g)||[]).length;
+  xml=xml.replace(/<mergeCells count="\d+"/, `<mergeCells count="${cnt}"`);
+  return xml;
+}
+const RF_LBL=[[[6,66,125,185,244,303],126,127],[[7,67,126,186,245,304],120,121],[[8,68,127,187,246,305],120,121]];
+function RFfixLabels(xml, npages){
+  for(const [rows,sB,sCD] of RF_LBL) for(const r of rows.slice(0,npages)){
+    const m=xml.match(new RegExp('<c r="C'+r+'"[^>]*t="s"[^>]*><v>(\\d+)</v></c>'));
+    if(!m) continue; const v=m[1];
+    xml=RFsetRaw(xml,`B${r}`,`<c r="B${r}" s="${sB}" t="s"><v>${v}</v></c>`);
+    xml=RFsetRaw(xml,`C${r}`,`<c r="C${r}" s="${sCD}"/>`);
+    xml=RFsetRaw(xml,`D${r}`,`<c r="D${r}" s="${sCD}"/>`);
+    xml=xml.replace(`<mergeCell ref="C${r}:D${r}"/>`,`<mergeCell ref="B${r}:D${r}"/>`);
+  }
+  return xml;
+}
+function RFsetRaw(xml, ref, cellXml){
+  const re=new RegExp('<c r="'+ref+'"(?:[^>]*?)(?:/>|>[\\s\\S]*?</c>)'); const m=xml.match(re);
+  if(m) return xml.slice(0,m.index)+cellXml+xml.slice(m.index+m[0].length);
+  const [col0,row0]=RFparseRef(ref), rownum=row0+1;
+  const rm=xml.match(new RegExp('(<row r="'+rownum+'"[^>]*>)([\\s\\S]*?)(</row>)'));
+  if(rm){ let body=rm[2], ins=body.length, cm, cre=/<c r="([A-Z]+)\d+"/g;
+    while((cm=cre.exec(body))){ if(RFcn(cm[1])>col0){ ins=cm.index; break; } }
+    return xml.slice(0,rm.index)+rm[1]+body.slice(0,ins)+cellXml+body.slice(ins)+rm[3]+xml.slice(rm.index+rm[0].length); }
+  return xml;
+}
+function RFfillHeader(xml, rodovia, medicao, periodo, trecho){
+  xml=RFsetCell(xml,'E6',RF_SUPERVISORA); xml=RFsetCell(xml,'S6',RF_CONTRATO);
+  xml=RFsetCell(xml,'E7',rodovia); xml=RFsetCell(xml,'S7',medicao);
+  xml=RFsetCell(xml,'S8',periodo); xml=RFsetCell(xml,'E8',trecho||'');
+  xml=RFclearCell(xml,'C9'); xml=RFsetCell(xml,'E9','');
+  return xml;
+}
+function RFbuildDrawing(baseDraw, lastRow0, photoSlots){
+  const root=baseDraw.match(/<xdr:wsDr[^>]*>/)[0];
+  const anchors=baseDraw.match(/<xdr:(?:one|two)CellAnchor[\s\S]*?<\/xdr:(?:one|two)CellAnchor>/g)||[];
+  const kept=[];
+  for(const a of anchors){ if(a.includes('CLIQUE')) continue;
+    const fr=a.match(/<xdr:from>[\s\S]*?<xdr:row>(\d+)<\/xdr:row>/);
+    if(fr && parseInt(fr[1],10)<=lastRow0) kept.push(a); }
+  const pics=photoSlots.map((sl,i)=>{ const [c0,r0,rid]=sl, c1=c0+10, r1=r0+11, pid=1000+i;
+    return `<xdr:twoCellAnchor editAs="oneCell"><xdr:from><xdr:col>${c0}</xdr:col><xdr:colOff>19050</xdr:colOff><xdr:row>${r0}</xdr:row><xdr:rowOff>19050</xdr:rowOff></xdr:from><xdr:to><xdr:col>${c1}</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>${r1}</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:to><xdr:pic><xdr:nvPicPr><xdr:cNvPr id="${pid}" name="Foto ${i+1}"/><xdr:cNvPicPr><a:picLocks noChangeAspect="0"/></xdr:cNvPicPr></xdr:nvPicPr><xdr:blipFill><a:blip xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" r:embed="${rid}"/><a:stretch><a:fillRect/></a:stretch></xdr:blipFill><xdr:spPr><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></xdr:spPr></xdr:pic><xdr:clientData/></xdr:twoCellAnchor>`;
+  });
+  return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\r\n'+root+kept.join('')+pics.join('')+'</xdr:wsDr>';
+}
+
+// ---- parsing de nomes de pasta ----
+function RFstripAc(s){ return s.replace(/ç/g,'c').replace(/[ãáàâ]/g,'a').replace(/í/g,'i').replace(/[óô]/g,'o').replace(/[éê]/g,'e'); }
+function RFnaturalPR(name){ const m=name.match(/(PR)[-\s]?(\d+)/i); return m?`PR-${m[2]}`:name.split(/\s+/)[0]; }
+function RFservico(name){ let rest=name.replace(/^\s*PR[-\s]?\d+\s*/i,'').trim().toLowerCase(); rest=RFstripAc(rest);
+  for(const k in RF_DEPARA){ if(rest.startsWith(RFstripAc(k.toLowerCase()))) return RF_DEPARA[k]; }
+  return name.replace(/^\s*PR[-\s]?\d+\s*/i,'').trim()||name;
+}
+
+// ---- Trecho (SNV) da PROD05 via SheetJS ----
+function RFtrechoMaps(wb){
+  const snv=/^\d{3}[A-Z]\d{3,4}[A-Z]{2,3}$/;
+  function collect(sheet, rodCol, treCol){ const map={};
+    if(!wb.Sheets[sheet]) return map;
+    const rows=XLSX.utils.sheet_to_json(wb.Sheets[sheet],{header:1,raw:true,defval:''});
+    for(const row of rows){ const rod=row[rodCol], tre=row[treCol];
+      if(typeof rod==='string' && /PR[-\s]?\d+/.test(rod) && typeof tre==='string' && snv.test(tre.trim())){
+        const k=rod.trim().toUpperCase().replace(/\s+/g,'-'); (map[k]=map[k]||[]);
+        if(!map[k].includes(tre.trim())) map[k].push(tre.trim()); } }
+    const out={}; for(const k in map) out[k]=map[k].join(' e '); return out;
+  }
+  return { V:collect('VERTICAL',2,23), D:collect('DEFENSAS',3,14) };
+}
+function RFtrechoDe(maps, folder, rodovia){ const low=folder.toLowerCase();
+  if(low.includes('vertical')) return maps.V[rodovia]||'';
+  if(low.includes('horizontal')) return '';
+  return maps.D[rodovia]||'';
+}
+
+const RF_IMG_EXT={jpg:'jpeg',jpeg:'jpeg',png:'png'};
+
+// ---- interface ----
+function viewRegistroFoto(){
+  setNav("registrofoto","Registro Fotográfico");
+  if(typeof setCrumbs==='function') setCrumbs([{t:"Dashboard", go:"viewDashboard()"},{t:"Registro Fotográfico"}]);
+  document.getElementById("view").innerHTML=`
+    <div class="pagehd"><div><h2>Registro Fotográfico</h2><div class="sb">Gera o Excel do registro fotográfico (padrão do departamento) a partir das suas pastas de fotos</div></div></div>
+    <div style="background:#fff;border:1px solid var(--borda);border-radius:12px;padding:18px;max-width:820px">
+      <p class="muted" style="margin-top:0;font-size:13px">Aponte a <b>pasta-mãe</b> com as subpastas por rodovia+serviço (ex.: <i>PR-170 Vertical</i>, <i>PR-419 Defensas</i>). Cada subpasta vira uma aba, com <b>6 fotos por página</b>, legendas e cabeçalho preenchidos. O <b>Trecho (SNV)</b> é puxado da planilha <b>PROD05</b>.</p>
+      <label>Pasta-mãe das fotos</label>
+      <input type="file" id="rfPasta" webkitdirectory directory multiple onchange="rfInfoArqs()">
+      <label style="margin-top:12px">Planilha PROD05 (.xlsx) — para os trechos <span class="muted">(opcional)</span></label>
+      <input type="file" id="rfProd" accept=".xlsx" onchange="rfInfoArqs()">
+      <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:12px">
+        <div style="flex:1;min-width:120px"><label>Medição</label><input type="text" id="rfMed" placeholder="ex.: 57"></div>
+        <div style="flex:2;min-width:200px"><label>Período</label><input type="text" id="rfPer" placeholder="ex.: 01/06/2026 a 30/06/2026"></div>
+      </div>
+      <p class="muted" id="rfInfo" style="font-size:12px;margin:12px 0 0"></p>
+      <div style="margin-top:14px"><button class="btn pri" onclick="gerarRegistroFoto()">📸 Gerar registro fotográfico</button></div>
+    </div>
+    <div id="rfOut" style="max-width:820px;margin-top:16px"></div>`;
+}
+function rfPastasDe(fileList){
+  const pastas={};
+  for(const f of fileList){ const rel=f.webkitRelativePath||f.name; const parts=rel.split('/');
+    if(parts.length<2) continue; const sub=parts[parts.length-2];
+    const ext=(f.name.split('.').pop()||'').toLowerCase(); if(!RF_IMG_EXT[ext]) continue;
+    (pastas[sub]=pastas[sub]||[]).push(f); }
+  for(const k in pastas) pastas[k].sort((a,b)=>a.name.localeCompare(b.name,undefined,{numeric:true}));
+  return pastas;
+}
+function rfInfoArqs(){
+  const fl=document.getElementById("rfPasta").files;
+  const prod=document.getElementById("rfProd").files[0];
+  const pastas=fl&&fl.length?rfPastasDe(fl):{};
+  const nomes=Object.keys(pastas).sort((a,b)=>a.localeCompare(b,undefined,{numeric:true}));
+  const nfotos=nomes.reduce((s,k)=>s+pastas[k].length,0);
+  const el=document.getElementById("rfInfo"); const bits=[];
+  if(nomes.length) bits.push(`${nomes.length} pasta(s), ${nfotos} foto(s): ${nomes.join(', ')}`);
+  if(prod) bits.push("PROD05: "+prod.name);
+  el.innerHTML=bits.length?bits.join("<br>"):"";
+}
+
+async function gerarRegistroFoto(){
+  const fl=document.getElementById("rfPasta").files;
+  const fProd=document.getElementById("rfProd").files[0];
+  const med=(document.getElementById("rfMed").value||"").trim();
+  const per=(document.getElementById("rfPer").value||"").trim();
+  const out=document.getElementById("rfOut");
+  if(typeof JSZip==='undefined'){ toast("Biblioteca indisponível (sem internet?)"); return; }
+  if(!fl||!fl.length){ toast("Selecione a pasta-mãe das fotos"); return; }
+  const pastas=rfPastasDe(fl);
+  const nomes=Object.keys(pastas).sort((a,b)=>a.localeCompare(b,undefined,{numeric:true}));
+  if(!nomes.length){ toast("Nenhuma subpasta com fotos encontrada"); return; }
+  out.innerHTML=`<div class="hint">Gerando… montando ${nomes.length} aba(s). Aguarde alguns segundos.</div>`;
+  try{
+    let maps={V:{},D:{}};
+    if(fProd && typeof XLSX!=='undefined'){
+      maps=RFtrechoMaps(XLSX.read(new Uint8Array(await fProd.arrayBuffer()),{type:"array"}));
+    }
+    const r=await rfGerarZip(pastas, maps, med, per);
+    const a=document.createElement("a"); a.href=URL.createObjectURL(r.blob); a.download=r.nome;
+    document.body.appendChild(a); a.click(); setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); },1500);
+    out.innerHTML=`<div class="panel" style="border-left:4px solid var(--verde)"><h3>✓ Gerado: ${esc(r.nome)}</h3><div class="muted" style="font-size:13px">${r.sheets} aba(s), ${r.photos} foto(s). Trecho ${fProd?'preenchido da PROD05':'em branco (sem PROD05)'}. Abra no Excel e confira.</div></div>`;
+    toast("Registro fotográfico gerado");
+  }catch(e){ console.error(e); out.innerHTML=`<div class="hint" style="border-color:var(--vermelho)">Erro: ${esc((e&&e.message)||e)}</div>`; toast("Falha ao gerar"); }
+}
+
+/* núcleo: recebe pastas {nome:[File,...]}, maps {V,D}, medição, período -> {blob,nome,sheets,photos} */
+async function rfGerarZip(pastas, maps, med, per){
+  const nomes=Object.keys(pastas).sort((a,b)=>a.localeCompare(b,undefined,{numeric:true}));
+  const tzip=await JSZip.loadAsync(await (await fetch("dados/registro/template_base.xlsx",{cache:"no-store"})).arrayBuffer());
+  const baseSheet=await tzip.file("xl/worksheets/sheet1.xml").async("string");
+  const baseDraw=await tzip.file("xl/drawings/drawing1.xml").async("string");
+  const d1rels=await tzip.file("xl/drawings/_rels/drawing1.xml.rels").async("string");
+  const styles=await tzip.file("xl/styles.xml").async("uint8array");
+  const theme=await tzip.file("xl/theme/theme1.xml").async("uint8array");
+  const shared=await tzip.file("xl/sharedStrings.xml").async("uint8array");
+  const LOGO_RELS=(d1rels.match(/<Relationship [^>]*Target="[^"]*image\d+\.[a-z]+"[^>]*\/>/g)||[]);
+  const LOGO_FILES=[]; let lm, lre=/Target="\.\.\/media\/(image\d+\.[a-z]+)"/g;
+  while((lm=lre.exec(d1rels))) LOGO_FILES.push(lm[1]);
+
+  const parts={}, media={};
+  for(const f of LOGO_FILES) media["xl/media/"+f]=await tzip.file("xl/media/"+f).async("uint8array");
+  const sheetsMeta=[]; let photoCounter=0;
+
+  for(let si=1; si<=nomes.length; si++){
+    const folder=nomes[si-1], fotos=pastas[folder];
+    const n=fotos.length, npages=Math.min(Math.ceil(n/6),6);
+    const useN=Math.min(n,36);
+    const rodovia=RFnaturalPR(folder), servico=RFservico(folder), aba=folder.trim().slice(0,31);
+    const dangling=(useN%2===1);
+    const btopLast=RF_BLOCKS[useN-1][1];
+    const lastRow=btopLast+14, lastRow0=lastRow-1;
+
+    let xml=RFtruncate(baseSheet,lastRow);
+    xml=xml.replace(/<rowBreaks[^>]*>[\s\S]*?<\/rowBreaks>/, m=>{
+      const brks=(m.match(/<brk [^>]*?\/>/g)||[]).filter(b=>parseInt(b.match(/id="(\d+)"/)[1],10)<lastRow);
+      return brks.length?`<rowBreaks count="${brks.length}" manualBreakCount="${brks.length}">${brks.join('')}</rowBreaks>`:''; });
+    xml=RFfixLabels(xml,npages);
+    const trecho=RFtrechoDe(maps,folder,rodovia);
+    xml=RFfillHeader(xml,rodovia,med,per,trecho);
+    for(let slot=0; slot<useN; slot++){ const [c0,bt]=RF_BLOCKS[slot]; const cr=RFcaptionRefs(c0,bt);
+      xml=RFsetCell(xml,cr.locVal,rodovia); xml=RFsetCell(xml,cr.desVal,servico); }
+    if(dangling){ const [c0,bt]=RF_BLOCKS[useN]; xml=RFblankRect(xml,c0-1,c0+9,bt,bt+14); }
+    xml=RFcloseBox(xml,lastRow,dangling);
+    xml=xml.replace(/<pageSetup([^>]*?) r:id="rId\d+"/, '<pageSetup$1');
+    xml=xml.replace(/<drawing r:id="rId\d+"\/>/, '<drawing r:id="rId1"/>');
+
+    const drawRels=LOGO_RELS.slice(); const photoSlots=[];
+    for(let i=0;i<useN;i++){ photoCounter++; const ext=(fotos[i].name.split('.').pop()||'').toLowerCase(); const e=RF_IMG_EXT[ext];
+      media[`xl/media/foto${photoCounter}.${e}`]=new Uint8Array(await fotos[i].arrayBuffer());
+      const [c0,bt]=RF_BLOCKS[i]; photoSlots.push([c0,bt,`rFoto${i+1}`]);
+      drawRels.push(`<Relationship Id="rFoto${i+1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/foto${photoCounter}.${e}"/>`); }
+    const drawXml=RFbuildDrawing(baseDraw,lastRow0,photoSlots);
+
+    parts[`xl/worksheets/sheet${si}.xml`]=xml;
+    parts[`xl/drawings/drawing${si}.xml`]=drawXml;
+    parts[`xl/worksheets/_rels/sheet${si}.xml.rels`]=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\r\n<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing" Target="../drawings/drawing${si}.xml"/></Relationships>`;
+    parts[`xl/drawings/_rels/drawing${si}.xml.rels`]=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\r\n<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${drawRels.join('')}</Relationships>`;
+    sheetsMeta.push([si,aba]);
+  }
+
+  const sheetsXml=sheetsMeta.map(([si,aba])=>`<sheet name="${RFesc(aba)}" sheetId="${si}" r:id="rIdS${si}"/>`).join('');
+  parts["xl/workbook.xml"]=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\r\n<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>${sheetsXml}</sheets><calcPr calcId="0" fullCalcOnLoad="1"/></workbook>`;
+  let wbRels='<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\r\n<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">';
+  for(const [si] of sheetsMeta) wbRels+=`<Relationship Id="rIdS${si}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${si}.xml"/>`;
+  wbRels+='<Relationship Id="rIdSty" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>';
+  wbRels+='<Relationship Id="rIdThm" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme" Target="theme/theme1.xml"/>';
+  wbRels+='<Relationship Id="rIdSst" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/sharedStrings" Target="sharedStrings.xml"/></Relationships>';
+  parts["xl/_rels/workbook.xml.rels"]=wbRels;
+  const ov=sheetsMeta.map(([si])=>`<Override PartName="/xl/worksheets/sheet${si}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join('')
+    +sheetsMeta.map(([si])=>`<Override PartName="/xl/drawings/drawing${si}.xml" ContentType="application/vnd.openxmlformats-officedocument.drawing+xml"/>`).join('');
+  parts["[Content_Types].xml"]='<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\r\n<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Default Extension="png" ContentType="image/png"/><Default Extension="jpeg" ContentType="image/jpeg"/><Default Extension="svg" ContentType="image/svg+xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/><Override PartName="/xl/theme/theme1.xml" ContentType="application/vnd.openxmlformats-officedocument.theme+xml"/><Override PartName="/xl/sharedStrings.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sharedStrings+xml"/>'+ov+'</Types>';
+  parts["_rels/.rels"]='<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\r\n<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>';
+
+  const zip=new JSZip();
+  zip.file("[Content_Types].xml",parts["[Content_Types].xml"]); delete parts["[Content_Types].xml"];
+  for(const p in parts) zip.file(p,parts[p]);
+  zip.file("xl/styles.xml",styles); zip.file("xl/theme/theme1.xml",theme); zip.file("xl/sharedStrings.xml",shared);
+  for(const p in media) zip.file(p,media[p]);
+  const blob=await zip.generateAsync({type:"blob",compression:"DEFLATE"});
+  const nome=`Relatorio_Fotografico${med?'_Med'+med:''}.xlsx`;
+  return { blob, nome, sheets: sheetsMeta.length, photos: photoCounter };
+}
+
+
 iniciar();
 </script>
 </body>
