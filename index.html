@@ -547,6 +547,7 @@ const NAV = [
     {id:"medicoes", t:"Medições", ic:"📊", soon:true},
     {id:"relatorios", t:"Relatórios", ic:"📄", go:"viewRelatorios()"},
     {id:"registrofoto", t:"Registro Fotográfico", ic:"📸", go:"viewRegistroFoto()"},
+    {id:"gerarrel", t:"Gerar Relatório", ic:"📄", go:"viewGerarRelatorio()"},
     {id:"financeiro", t:"Financeiro", ic:"💰", go:"viewFinanceiro()"},
     {id:"cronograma", t:"Cronograma", ic:"📈", go:"viewCronograma()"},
   ]},
@@ -3635,6 +3636,330 @@ async function rfGerarZip(pastas, maps, med, per){
   const blob=await zip.generateAsync({type:"blob",compression:"DEFLATE"});
   const nome=`Relatorio_Fotografico${med?'_Med'+med:''}.xlsx`;
   return { blob, nome, sheets: sheetsMeta.length, photos: photoCounter };
+}
+
+
+/* ===== Gerar Relatório (ferramenta) ===== */
+/* ===================== GERAR RELATÓRIO (PROSEG) — núcleo =====================
+   Lê a PROD05 → detecta serviços por bloco → monta o texto do 6.2 (rascunho) →
+   injeta no modelo leve do Word (.docx) via JSZip. Porte dos protótipos Python. */
+
+const RR_COD_APOIO='892925', RR_COD_INOVACAO='898990';
+const RR_COD_DEFENSA=['890921','896385','895013','895015','896375','895666'];
+
+function RResc(t){ return String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function RRq(v){ return (Math.round(v*1000)/1000).toString(); }
+
+/* ---- lê PROD05 (por ENDEREÇO ABSOLUTO de célula) ---- */
+function RRlerProd(wb){
+  const dados={vertical:{}, defensas:{}, apoio:{}, inovacao:{}};
+  // VERTICAL: conta linhas por rodovia (col C)
+  const V=wb.Sheets['VERTICAL'];
+  if(V && V['!ref']){ const rng=XLSX.utils.decode_range(V['!ref']);
+    for(let r=rng.s.r; r<=rng.e.r; r++){ const c=V['C'+(r+1)]; const rod=c?String(c.v).trim():'';
+      if(/^PR[-\s]?\d+/.test(rod)) dados.vertical[rod]=(dados.vertical[rod]||0)+1; } }
+  // DEFENSAS: agrega por rodovia (D) e código (J), qtde (L)
+  const D=wb.Sheets['DEFENSAS'];
+  if(D && D['!ref']){ const rng=XLSX.utils.decode_range(D['!ref']); const agg={};
+    for(let r=rng.s.r; r<=rng.e.r; r++){ const rc=D['D'+(r+1)], cc=D['J'+(r+1)], qc=D['L'+(r+1)];
+      const rod=rc?String(rc.v).trim():''; if(!/^PR[-\s]?\d+/.test(rod)) continue;
+      const cod=cc?String(cc.v).trim():''; let q=qc?parseFloat(qc.v):0; if(isNaN(q))q=0;
+      agg[rod]=agg[rod]||{defensa_m:0,terminais:0,refletivos:0,remocao_m:0,apoio_h:0,inovacao:0};
+      if(cod==='890921') agg[rod].defensa_m+=q;
+      else if(cod==='896385') agg[rod].terminais+=q;
+      else if(cod==='895013'||cod==='895015') agg[rod].refletivos+=q;
+      else if(cod==='895666') agg[rod].remocao_m+=q;
+      else if(cod===RR_COD_APOIO) agg[rod].apoio_h+=q;
+      else if(cod===RR_COD_INOVACAO) agg[rod].inovacao+=q;
+    }
+    for(const rod in agg){ const d=agg[rod];
+      if(d.defensa_m||d.terminais||d.refletivos||d.remocao_m) dados.defensas[rod]=d;
+      if(d.apoio_h) dados.apoio[rod]=d.apoio_h;
+      if(d.inovacao) dados.inovacao[rod]=d.inovacao;
+    }
+  }
+  return dados;
+}
+
+/* ---- verbos de situação ---- */
+const RR_SIT_V={iniciada:'foram iniciadas as instalações de', continuada:'tiveram continuidade as instalações de',
+  retomada:'foram retomadas as instalações de', concluida:'foram concluídas as instalações de',
+  iniciada_concluida:'foram iniciadas e concluídas as instalações de', a_finalizar:'prosseguiram as instalações de'};
+
+function RRlista(rods){ return rods.length>1 ? rods.slice(0,-1).join(', ')+' e '+rods[rods.length-1] : (rods[0]||''); }
+
+/* ---- gera o texto do 6.2 (rascunho) ---- */
+function RRgerar62(dados, resp, periodo){
+  const L=['6.2 SERVIÇOS EXECUTADOS',
+           `No período de referência ${periodo||'[período]'} foram contempladas as seguintes frentes de serviço:`,''];
+  // 6.2.1 VERTICAL
+  L.push('6.2.1 SINALIZAÇÃO VERTICAL');
+  const rv=(resp.vertical&&resp.vertical._rods)||Object.keys(dados.vertical);
+  if(!rv.length) L.push('Não houve serviços de sinalização vertical no período de referência.');
+  for(const rod of rv){ const r=(resp.vertical&&resp.vertical[rod])||{};
+    const sit=r.situacao||'iniciada'; const verbo=RR_SIT_V[sit]||RR_SIT_V.iniciada;
+    const ns=r.ns_data||'[data da NS]';
+    const prep=(sit==='concluida'||sit==='iniciada_concluida')?'em atendimento à':'conforme prevista na';
+    const ctx=r.contexto?(', '+r.contexto):'';
+    L.push(`No mês em referência, ${verbo} sinalização vertical na rodovia ${rod}, ${prep} Nota de Serviço emitida em ${ns}${ctx}. `+
+      `Os serviços contemplaram a implantação de placas de sinalização em alumínio composto, com película retrorrefletiva Tipo III `+
+      `prismática e suportes ecológicos colapsíveis de seção 80 x 80 mm. [quantidade/tipos de placas, se aplicável]`);
+    if(sit!=='concluida' && sit!=='iniciada_concluida'){ const p=(r.pct_pendente!=null&&r.pct_pendente!=='')?r.pct_pendente+'%':'[X]%';
+      L.push(`Informa-se que a Nota de Serviço não foi concluída no período em referência, permanecendo ${p} dos serviços pendentes para execução nos meses subsequentes.`); }
+  }
+  L.push('');
+  // 6.2.2 DEFENSAS
+  L.push('6.2.2 DISPOSITIVOS DE SEGURANÇA (DEFENSAS METÁLICAS)');
+  const rd=(resp.defensas&&resp.defensas._rods)||Object.keys(dados.defensas);
+  if(!rd.length) L.push('Não houve serviços de defensas metálicas no período de referência.');
+  else{
+    const sg=(resp.defensas&&resp.defensas._geral)||'foram iniciadas e concluídas';
+    L.push(`No período em referência, ${sg} as instalações de defensas metálicas, conforme Notas de Serviço emitidas para as `+
+      `rodovias ${RRlista(rd)}. Os serviços contemplaram tanto a implantação de novos segmentos de defensas metálicas quanto a `+
+      `manutenção de dispositivos existentes que apresentavam avarias.`);
+    L.push('Nas intervenções de manutenção, foram realizadas substituições parciais dos elementos danificados, restringindo-se aos '+
+      'componentes efetivamente comprometidos, tais como lâminas, terminais absorvedores de energia ou ambos, conforme a necessidade identificada em campo.');
+    for(const rod of rd){ const d=dados.defensas[rod]||{}; const partes=[];
+      if(d.defensa_m) partes.push(`${RRq(d.defensa_m)} m de defensa metálica`);
+      if(d.terminais) partes.push(d.terminais===1?`1 terminal absorvedor de energia`:`${RRq(d.terminais)} terminais absorvedores de energia`);
+      if(d.refletivos) partes.push(d.refletivos===1?`1 dispositivo refletivo`:`${RRq(d.refletivos)} dispositivos refletivos`);
+      if(!partes.length) partes.push('os serviços previstos');
+      const quant = partes.length>1 ? partes.slice(0,-1).join(', ')+' e '+partes[partes.length-1] : partes[0];
+      const rem = d.remocao_m?` Foram ainda removidos ${RRq(d.remocao_m)} m de defensa.`:'';
+      const r=(resp.defensas&&resp.defensas[rod])||{};
+      const ctx = r.contexto?(' '+r.contexto):' [observações da rodovia, se houver.]';
+      L.push(`Na rodovia ${rod}, os serviços contemplaram ${quant}.${rem}${ctx}`);
+    }
+  }
+  L.push('');
+  // 6.2.3 APOIO
+  L.push('6.2.3 SERVIÇO DE APOIO À OPERAÇÃO DE SINALIZAÇÃO');
+  const ra=Object.keys(dados.apoio);
+  if(!ra.length) L.push('Não houve serviços de apoio à operação de sinalização no período de referência.');
+  else{ const ctx=(resp.apoio&&resp.apoio.contexto)?(' '+resp.apoio.contexto):' [Se houve uso adicional (ex.: sinalização temporária para outra frente), descreva aqui.]';
+    L.push('No período de referência, o item Serviço de Apoio à Operação de Sinalização foi utilizado para garantir a segurança '+
+      'viária durante a execução dos serviços de implantação e manutenção de defensas metálicas nas rodovias contempladas.'+ctx); }
+  L.push('');
+  // 6.2.4 INOVAÇÃO
+  L.push('6.2.4 INOVAÇÃO TECNOLÓGICA');
+  const ri=Object.keys(dados.inovacao);
+  if(!ri.length) L.push('Não houve serviços de inovação tecnológica no período de referência.');
+  for(const rod of ri){ const r=(resp.inovacao&&resp.inovacao[rod])||{};
+    const verbo={iniciada:'foi iniciada',continuada:'teve continuidade',concluida:'foi concluída'}[r.situacao||'iniciada'];
+    const ctx=r.contexto||'[descreva a solução e o contexto — ex.: barreira metálica com revestimento em madeira; área tombada, etc.]';
+    L.push(`No período de referência, ${verbo} a execução do serviço de inovação tecnológica previsto para a rodovia ${rod}. ${ctx}`);
+  }
+  return L.join('\n');
+}
+
+/* ---- injeção no docx ---- */
+function RRruns(text){
+  let out='';
+  for(const part of text.split(/(\[[^\]]*\])/)){ if(!part) continue;
+    const hl = (part.startsWith('[')&&part.endsWith(']')) ? '<w:highlight w:val="yellow"/>' : '';
+    out+=`<w:r><w:rPr><w:rFonts w:ascii="Montserrat" w:hAnsi="Montserrat"/>${hl}</w:rPr><w:t xml:space="preserve">${RResc(part)}</w:t></w:r>`;
+  }
+  return out;
+}
+function RRpHeading(t){ return `<w:p><w:pPr><w:pStyle w:val="Ttulo3"/></w:pPr>${RRruns(t)}</w:p>`; }
+function RRpBody(t){ return `<w:p><w:pPr><w:pStyle w:val="Alneas"/><w:spacing w:line="360" w:lineRule="auto"/><w:ind w:firstLine="709"/></w:pPr>${RRruns(t)}</w:p>`; }
+
+function RRtextoParaParagrafos(texto62){
+  let ps='';
+  for(const linha of texto62.split('\n')){ const l=linha.trim(); if(!l) continue;
+    if(l.startsWith('6.2 SERVI')) continue;
+    if(l.startsWith('No período de referência') && l.includes('frentes')) continue;
+    const m=l.match(/^6\.2\.\d+\s+(.*)/);
+    ps += m ? RRpHeading(m[1]) : RRpBody(l);
+  }
+  return ps;
+}
+
+/* seta período (dc:description) e medição (cp:contentStatus) no core.xml — os
+   campos vinculados da capa e o intro do 6.2 atualizam sozinhos ao abrir no Word. */
+function RRsetCore(coreXml, periodo, medicao){
+  const setTag=(xml,tag,val)=>{ if(val==null||val==='') return xml;
+    const re=new RegExp('<'+tag+'[^>]*>[\\s\\S]*?</'+tag+'>');
+    if(re.test(xml)) return xml.replace(re, '<'+tag+'>'+RResc(val)+'</'+tag+'>');
+    return xml.replace('</cp:coreProperties>', '<'+tag+'>'+RResc(val)+'</'+tag+'></cp:coreProperties>');
+  };
+  coreXml=setTag(coreXml,'dc:description',periodo);
+  coreXml=setTag(coreXml,'cp:contentStatus',medicao);
+  return coreXml;
+}
+
+const RR_MESES=['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'];
+function RRmesDePeriodo(periodo){ // "01/07/2026 a 31/07/2026" -> "julho de 2026"
+  const m=String(periodo||'').match(/\d{1,2}\/(\d{1,2})\/(\d{4})/);
+  if(!m) return ''; const mes=parseInt(m[1],10); if(mes<1||mes>12) return '';
+  return `${RR_MESES[mes-1]} de ${m[2]}`;
+}
+
+async function RRinjetar(templateArrayBuffer, texto62, periodo, medicao){
+  const zip=await JSZip.loadAsync(templateArrayBuffer);
+  // cabeçalho: período + medição via propriedades do documento
+  const coreFile=zip.file('docProps/core.xml');
+  if(coreFile && (periodo||medicao)) zip.file('docProps/core.xml', RRsetCore(await coreFile.async('string'), periodo, medicao));
+  // mês por extenso da capa (customXml/item1.xml -> PublishDate)
+  const mes=RRmesDePeriodo(periodo); const cxFile=zip.file('customXml/item1.xml');
+  if(mes && cxFile){ let cx=await cxFile.async('string');
+    cx=cx.replace(/<PublishDate>[\s\S]*?<\/PublishDate>/, '<PublishDate>'+RResc(mes)+'</PublishDate>');
+    zip.file('customXml/item1.xml', cx); }
+  let doc=await zip.file('word/document.xml').async('string');
+  const re=/<w:p\b[^>]*>[\s\S]*?<\/w:p>|<w:p\b[^>]*\/>/g;
+  const paras=[]; let m; while((m=re.exec(doc))) paras.push({s:m.index, e:m.index+m[0].length, xml:m[0]});
+  const txt=s=>{ let t=''; const r=/<w:t[^>]*>([\s\S]*?)<\/w:t>/g; let mm; while((mm=r.exec(s))) t+=mm[1]; return t; };
+  let iIni=-1, iFim=-1;
+  for(let i=0;i<paras.length;i++){ const t=txt(paras[i].xml);
+    if(iIni<0 && paras[i].xml.includes('w:val="Ttulo3"') && t.includes('SINALIZA') && t.includes('VERTICAL')) iIni=i;
+    if(iIni>=0 && t.includes('RESUMO FOTOGR') && i>iIni){ iFim=i; break; }
+  }
+  if(iIni<0||iFim<0) throw new Error('não localizei a seção 6.2 no modelo (ini='+iIni+', fim='+iFim+')');
+  const novo=RRtextoParaParagrafos(texto62);
+  const doc2=doc.slice(0,paras[iIni].s)+novo+doc.slice(paras[iFim].s);
+  zip.file('word/document.xml', doc2);
+  return await zip.generateAsync({type:'blob',compression:'DEFLATE'});
+}
+
+/* ===================== GERAR RELATÓRIO — interface ===================== */
+let RR_DADOS=null;
+
+const RR_SIT_OPTS=[['iniciada','Iniciada no mês'],['continuada','Continuada'],['retomada','Retomada'],
+  ['concluida','Concluída no mês'],['iniciada_concluida','Iniciada e concluída'],['a_finalizar','A finalizar nos próximos meses']];
+const RR_GERAL_OPTS=[['foram iniciadas e concluídas','Iniciadas e concluídas'],['foram iniciadas','Iniciadas'],
+  ['tiveram continuidade','Continuadas'],['foram concluídas','Concluídas']];
+
+function rrSan(r){ return r.replace(/\W/g,''); }
+function rrSelect(id,opts){ return `<select id="${id}" style="padding:5px;border:1px solid var(--borda);border-radius:6px">`+
+  opts.map(o=>`<option value="${esc(o[0])}">${esc(o[1])}</option>`).join('')+`</select>`; }
+
+function viewGerarRelatorio(){
+  setNav("gerarrel","Gerar Relatório");
+  if(typeof setCrumbs==='function') setCrumbs([{t:"Dashboard", go:"viewDashboard()"},{t:"Gerar Relatório"}]);
+  RR_DADOS=null;
+  document.getElementById("view").innerHTML=`
+    <div class="pagehd"><div><h2>Gerar Relatório</h2><div class="sb">Monta o relatório mensal em Word (texto do 6.2 + cabeçalho) a partir das planilhas</div></div></div>
+    <div style="background:#fff;border:1px solid var(--borda);border-radius:12px;padding:18px;max-width:900px">
+      <p class="muted" style="margin-top:0;font-size:13px">Envie a planilha <b>PROD05</b>. O painel detecta os serviços de cada bloco (Vertical, Defensas, Apoio, Inovação), você <b>responde a situação de cada um</b>, e baixa o Word com a <b>descrição dos serviços (6.2)</b> já montada. As lacunas de contexto ficam <span style="background:#ff0;padding:0 3px">destacadas em amarelo</span> no Word.</p>
+      <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:end">
+        <div style="flex:2;min-width:240px"><label>Planilha PROD05 (.xlsx)</label><input type="file" id="rrProd" accept=".xlsx" onchange="rrLer()"></div>
+        <div style="min-width:90px"><label>Medição</label><input type="text" id="rrMed" placeholder="57"></div>
+        <div style="flex:1;min-width:200px"><label>Período</label><input type="text" id="rrPer" placeholder="01/06/2026 a 30/06/2026"></div>
+      </div>
+      <p class="muted" id="rrInfo" style="font-size:12px;margin:10px 0 0"></p>
+    </div>
+    <div id="rrForm" style="max-width:900px"></div>
+    <div id="rrOut" style="max-width:900px;margin-top:14px"></div>`;
+}
+
+async function rrLer(){
+  const f=document.getElementById("rrProd").files[0];
+  const info=document.getElementById("rrInfo");
+  if(!f){ return; }
+  if(typeof XLSX==='undefined'){ toast("Biblioteca indisponível (sem internet?)"); return; }
+  info.textContent="Lendo a PROD05…";
+  try{
+    const wb=XLSX.read(new Uint8Array(await f.arrayBuffer()),{type:"array"});
+    RR_DADOS=RRlerProd(wb);
+    info.textContent="PROD05 lida. Confira as rodovias de cada bloco e responda a situação.";
+    rrRenderForm();
+  }catch(e){ console.error(e); info.textContent="Erro ao ler a PROD05: "+((e&&e.message)||e); }
+}
+
+function rrLinhaRod(bloco, rod, extra){
+  const s=rrSan(rod);
+  return `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:7px 0;border-top:1px solid #eef1f5">
+    <label style="display:flex;align-items:center;gap:6px;min-width:150px;margin:0"><input type="checkbox" id="rr_${bloco}_inc_${s}" checked> <b>${esc(rod)}</b></label>
+    ${extra}
+  </div>`;
+}
+
+function rrRenderForm(){
+  const d=RR_DADOS; if(!d){ return; }
+  const box=(titulo,corpo,vazio)=>`<div style="background:#fff;border:1px solid var(--borda);border-radius:12px;padding:16px;margin-top:14px">
+     <h3 style="margin:0 0 6px">${titulo}</h3>${corpo||`<div class="muted" style="font-size:13px">${vazio}</div>`}</div>`;
+
+  // Vertical
+  const rv=Object.keys(d.vertical);
+  const vert=rv.map(rod=>{ const s=rrSan(rod);
+    return rrLinhaRod('vertical',rod,
+      `${rrSelect('rr_vertical_sit_'+s,RR_SIT_OPTS)}
+       <input type="text" id="rr_vertical_ns_${s}" placeholder="data da NS" style="width:110px;padding:5px;border:1px solid var(--borda);border-radius:6px">
+       <input type="text" id="rr_vertical_pct_${s}" placeholder="% pend." style="width:70px;padding:5px;border:1px solid var(--borda);border-radius:6px">
+       <input type="text" id="rr_vertical_ctx_${s}" placeholder="contexto (opcional)" style="flex:1;min-width:160px;padding:5px;border:1px solid var(--borda);border-radius:6px">`);
+  }).join('');
+
+  // Defensas
+  const rd=Object.keys(d.defensas);
+  const defRows=rd.map(rod=>{ const s=rrSan(rod); const q=d.defensas[rod];
+    const resumo=[q.defensa_m?RRq(q.defensa_m)+'m':'', q.terminais?RRq(q.terminais)+' term.':'', q.refletivos?RRq(q.refletivos)+' refl.':''].filter(Boolean).join(' · ');
+    return rrLinhaRod('defensas',rod,
+      `<span class="muted" style="font-size:11px;min-width:150px">${resumo}</span>
+       <input type="text" id="rr_defensas_ctx_${s}" placeholder="contexto/observação (opcional)" style="flex:1;min-width:200px;padding:5px;border:1px solid var(--borda);border-radius:6px">`);
+  }).join('');
+  const defensasCorpo = rd.length ? `<div style="margin-bottom:6px"><label>Situação geral do bloco: </label>${rrSelect('rr_defensas_geral',RR_GERAL_OPTS)}</div>${defRows}` : null;
+
+  // Apoio
+  const ra=Object.keys(d.apoio);
+  const apoioCorpo = ra.length ? `<div class="muted" style="font-size:12px;margin-bottom:6px">Rodovias com apoio: <b>${ra.map(esc).join(', ')}</b></div>
+      <input type="text" id="rr_apoio_ctx" placeholder="uso adicional do apoio (opcional)" style="width:100%;padding:6px;border:1px solid var(--borda);border-radius:6px">` : null;
+
+  // Inovação
+  const ri=Object.keys(d.inovacao);
+  const inovCorpo = ri.length ? ri.map(rod=>{ const s=rrSan(rod);
+    return rrLinhaRod('inovacao',rod,
+      `${rrSelect('rr_inovacao_sit_'+s,RR_SIT_OPTS.filter(o=>['iniciada','continuada','concluida'].includes(o[0])))}
+       <input type="text" id="rr_inovacao_ctx_${s}" placeholder="descreva a solução e o contexto" style="flex:1;min-width:240px;padding:5px;border:1px solid var(--borda);border-radius:6px">`);
+  }).join('') : null;
+
+  document.getElementById("rrForm").innerHTML=
+    box('6.2.1 &nbsp;Sinalização Vertical', vert, 'Nenhuma rodovia detectada.')+
+    box('6.2.2 &nbsp;Dispositivos de Segurança (Defensas)', defensasCorpo, 'Nenhuma rodovia detectada.')+
+    box('6.2.3 &nbsp;Serviço de Apoio à Operação', apoioCorpo, 'Nenhuma rodovia detectada.')+
+    box('6.2.4 &nbsp;Inovação Tecnológica', inovCorpo, 'Nenhuma rodovia detectada.')+
+    `<div style="margin-top:14px"><button class="btn pri" onclick="rrGerar()">📄 Gerar Word do 6.2</button>
+      <span class="muted" style="font-size:12px;margin-left:10px">Desmarque as rodovias que não devem entrar em cada bloco.</span></div>`;
+}
+
+function rrVal(id){ const el=document.getElementById(id); return el?el.value.trim():''; }
+function rrChk(id){ const el=document.getElementById(id); return el?el.checked:false; }
+
+function rrColeta(){
+  const d=RR_DADOS; const resp={vertical:{},defensas:{},apoio:{},inovacao:{}};
+  // vertical
+  const rv=Object.keys(d.vertical).filter(rod=>rrChk('rr_vertical_inc_'+rrSan(rod)));
+  resp.vertical._rods=rv;
+  rv.forEach(rod=>{ const s=rrSan(rod); resp.vertical[rod]={situacao:rrVal('rr_vertical_sit_'+s),
+    ns_data:rrVal('rr_vertical_ns_'+s), pct_pendente:rrVal('rr_vertical_pct_'+s), contexto:rrVal('rr_vertical_ctx_'+s)}; });
+  // defensas
+  const rd=Object.keys(d.defensas).filter(rod=>rrChk('rr_defensas_inc_'+rrSan(rod)));
+  resp.defensas._rods=rd; resp.defensas._geral=rrVal('rr_defensas_geral')||'foram iniciadas e concluídas';
+  rd.forEach(rod=>{ const s=rrSan(rod); resp.defensas[rod]={contexto:rrVal('rr_defensas_ctx_'+s)}; });
+  // apoio
+  resp.apoio.contexto=rrVal('rr_apoio_ctx');
+  // inovacao
+  Object.keys(d.inovacao).filter(rod=>rrChk('rr_inovacao_inc_'+rrSan(rod))).forEach(rod=>{ const s=rrSan(rod);
+    resp.inovacao[rod]={situacao:rrVal('rr_inovacao_sit_'+s), contexto:rrVal('rr_inovacao_ctx_'+s)}; });
+  return resp;
+}
+
+async function rrGerar(){
+  const out=document.getElementById("rrOut");
+  if(!RR_DADOS){ toast("Leia a PROD05 primeiro"); return; }
+  const med=rrVal('rrMed'), per=rrVal('rrPer');
+  out.innerHTML=`<div class="hint">Gerando o Word… aguarde.</div>`;
+  try{
+    const resp=rrColeta();
+    const texto=RRgerar62(RR_DADOS, resp, per||'[período]');
+    const tpl=await (await fetch("dados/registro/modelo_relatorio.docx",{cache:"no-store"})).arrayBuffer();
+    const blob=await RRinjetar(tpl, texto, per, med);
+    const nome=`Relatorio_Supervisao${med?'_Med'+med:''}.docx`;
+    const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=nome;
+    document.body.appendChild(a); a.click(); setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); },1500);
+    out.innerHTML=`<div class="panel" style="border-left:4px solid var(--verde)"><h3>✓ Gerado: ${esc(nome)}</h3>
+      <div class="muted" style="font-size:13px">Cabeçalho (período/medição) e o texto do 6.2 já vêm preenchidos. Abra no Word, complete as <span style="background:#ff0;padding:0 3px">lacunas amarelas</span> e insira as imagens do mês. O financeiro entra na próxima versão.</div></div>`;
+    toast("Word gerado");
+  }catch(e){ console.error(e); out.innerHTML=`<div class="hint" style="border-color:var(--vermelho)">Erro: ${esc((e&&e.message)||e)}</div>`; toast("Falha ao gerar"); }
 }
 
 
