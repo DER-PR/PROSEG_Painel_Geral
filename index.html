@@ -1169,7 +1169,7 @@ function renderListaNS(){
     const corPct = s.pct===100 ? 'var(--verde)' : (s.medidas===0 ? 'var(--cinza)' : 'var(--azul)');
     const andam = `<div style="display:flex;align-items:center;gap:8px;min-width:160px">
         <div class="prog" style="flex:1"><i style="width:${s.pct}%"></i></div>
-        <span style="white-space:nowrap"><b>${s.total}/${s.medidas}</b> <span style="color:${corPct};font-weight:600">(${s.pct}%)</span></span>
+        <span style="white-space:nowrap"><b>${s.medidas}/${s.total}</b> <span style="color:${corPct};font-weight:600">(${s.pct}%)</span></span>
       </div>`;
     return `<tr class="nsrow" onclick="viewNS('${m.id}')">
       <td><b>${esc(m.rodovia)}</b>${antigo?' <span class="badge b-amarelo" title="NS antiga ainda em aberto">antiga</span>':''}${m.manual?' <span class="badge b-azul" title="Cadastrada manualmente">manual</span>':''}</td>
@@ -1298,9 +1298,13 @@ function renderNS(){
   const s = statNS(atualNS, ns);
   const usadas = medicoesUsadas(atualNS);
   const v = document.getElementById("view");
-  const pills = [`<span class="pill ${filtroMed==='todas'?'on':''}" onclick="setFiltro('todas')">Todas (${ns.placas.length})</span>`,
-    `<span class="pill ${filtroMed==='pendentes'?'on':''}" onclick="setFiltro('pendentes')">Pendentes (${s.total-s.medidas})</span>`]
-    .concat(usadas.map(n=>`<span class="pill ${String(filtroMed)===String(n)?'on':''}" onclick="setFiltro(${n})">Medição ${n}</span>`));
+  const _tot = ns.placas.length;
+  const _pctOf = (x)=> _tot? Math.round(x/_tot*100) : 0;
+  const _medCont = {}; Object.values(medicoes[atualNS]||{}).forEach(m=>{ const k=String(m); _medCont[k]=(_medCont[k]||0)+1; });
+  const _pend = s.total - s.medidas;
+  const pills = [`<span class="pill ${filtroMed==='todas'?'on':''}" onclick="setFiltro('todas')">Todas (${_tot})</span>`,
+    `<span class="pill ${filtroMed==='pendentes'?'on':''}" onclick="setFiltro('pendentes')">Pendentes (${_pend} / ${_pctOf(_pend)}%)</span>`]
+    .concat(usadas.map(n=>{ const c=_medCont[String(n)]||0; return `<span class="pill ${String(filtroMed)===String(n)?'on':''}" onclick="setFiltro(${n})">Medição ${n} (${c} / ${_pctOf(c)}%)</span>`; }));
   v.innerHTML = `
     <div class="stat">
       <div><div class="n">${nomeNS(ns)}</div><div class="l">${labelData(ns)} · ${ns.rodovia}</div></div>
