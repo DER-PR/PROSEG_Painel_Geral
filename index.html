@@ -3865,6 +3865,62 @@ function RRsummaryQ8(docXml, resumo, periodo){
   return docXml;
 }
 
+/* ===== 6.3 RESUMO FOTOGRÁFICO — gera subseções + frase + legenda(SEQ) + imagem ===== */
+const RR_IMGNS='xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"';
+const RR_FONT='<w:rFonts w:ascii="Montserrat" w:hAnsi="Montserrat"/>';
+function RRimgPara(rId, cx, cy, id){
+  return `<w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:rPr><w:noProof/></w:rPr>`+
+    `<w:drawing ${RR_IMGNS}><wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="${cx}" cy="${cy}"/>`+
+    `<wp:effectExtent l="0" t="0" r="0" b="0"/><wp:docPr id="${id}" name="Imagem ${id}"/>`+
+    `<wp:cNvGraphicFramePr><a:graphicFrameLocks noChangeAspect="1"/></wp:cNvGraphicFramePr>`+
+    `<a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic>`+
+    `<pic:nvPicPr><pic:cNvPr id="${id}" name="Imagem ${id}"/><pic:cNvPicPr/></pic:nvPicPr>`+
+    `<pic:blipFill><a:blip r:embed="${rId}"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>`+
+    `<pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${cx}" cy="${cy}"/></a:xfrm>`+
+    `<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic>`+
+    `</wp:inline></w:drawing></w:r></w:p>`;
+}
+function RRlegendaFig(texto){   // "Figura [SEQ] - texto" (estilo Legenda, numeração automática)
+  const r=(inner)=>`<w:r><w:rPr>${RR_FONT}</w:rPr>${inner}</w:r>`;
+  return `<w:p><w:pPr><w:pStyle w:val="Legenda"/><w:keepNext/><w:rPr>${RR_FONT}</w:rPr></w:pPr>`+
+    r('<w:t xml:space="preserve">Figura </w:t>')+
+    r('<w:fldChar w:fldCharType="begin"/>')+
+    r('<w:instrText xml:space="preserve"> SEQ Figura \\* ARABIC </w:instrText>')+
+    r('<w:fldChar w:fldCharType="separate"/>')+
+    `<w:r><w:rPr>${RR_FONT}<w:noProof/></w:rPr><w:t>0</w:t></w:r>`+
+    r('<w:fldChar w:fldCharType="end"/>')+
+    r(`<w:t xml:space="preserve"> - ${RResc(texto)}</w:t>`)+
+    `</w:p>`;
+}
+function RRh63(texto){ return `<w:p><w:pPr><w:pStyle w:val="Ttulo3"/></w:pPr><w:r><w:rPr>${RR_FONT}</w:rPr><w:t xml:space="preserve">${RResc(texto)}</w:t></w:r></w:p>`; }
+function RRgerar63(fotos){
+  const blocos=[['vertical','SINALIZAÇÃO VERTICAL'],['defensas','DISPOSITIVOS DE SEGURANÇA (DEFENSAS METÁLICAS)'],
+                ['apoio','SERVIÇO DE APOIO À OPERAÇÃO DE SINALIZAÇÃO'],['inovacao','INOVAÇÃO TECNOLÓGICA']];
+  let out='';
+  for(const [bk,titulo] of blocos){ const fs=fotos.filter(f=>f.block===bk); if(!fs.length) continue;
+    out+=RRh63(titulo);
+    for(const f of fs){
+      const det = bk==='vertical' ? '[detalhes: km, lado, código da placa, se aplicável]' : '[detalhes: implantação/manutenção, km, lado, se aplicável]';
+      out+=RRpBody(`A figura a seguir apresenta o serviço de ${f.servicoLow} executado na rodovia ${f.rodovia}. ${det}`);
+      out+=RRlegendaFig(`${f.servico} na ${f.rodovia}`);
+      out+=RRimgPara(f.rId, f.cx, f.cy, f.id);
+    }
+  }
+  return out;
+}
+function RRreplace63(docXml, novo63){
+  const ms=[...docXml.matchAll(/<w:p\b[^>]*>[\s\S]*?<\/w:p>/g)];
+  const txt=s=>s.replace(/<[^>]+>/g,'');
+  let iResumo=-1,iIni=-1,iFim=-1;
+  for(let k=0;k<ms.length;k++){ const p=ms[k][0], t=txt(p);
+    if(iResumo<0 && /RESUMO\s*FOTOGR/i.test(t) && /w:val="Ttulo2"/.test(p)){ iResumo=k; }
+    else if(iResumo>=0 && iIni<0 && /w:val="Ttulo3"/.test(p)){ iIni=k; }
+    else if(iIni>=0 && iFim<0 && /CONCLUS/i.test(t) && /w:val="Ttulo1"/.test(p)){ iFim=k; break; }
+  }
+  if(iIni<0||iFim<0) return docXml;
+  return docXml.slice(0, ms[iIni].index) + novo63 + docXml.slice(ms[iFim].index);
+}
+
 /* ===== grifar em amarelo os itens que a usuária insere na mão (imagens) ===== */
 function RRgrifarRuns(pXml){
   return pXml.replace(/<w:r\b([^>]*)>([\s\S]*?)<\/w:r>/g, function(m, attrs, inner){
@@ -3929,8 +3985,16 @@ function RRmesDePeriodo(periodo){ // "01/07/2026 a 31/07/2026" -> "julho de 2026
   return `${RR_MESES[mes-1]} de ${m[2]}`;
 }
 
-async function RRinjetar(templateArrayBuffer, texto62, periodo, medicao, planilhaWb){
+async function RRinjetar(templateArrayBuffer, texto62, periodo, medicao, planilhaWb, fotos63){
   const zip=await JSZip.loadAsync(templateArrayBuffer);
+  // 6.3: fotos do resumo fotográfico (media + rels)
+  if(fotos63 && fotos63.length){
+    let rels=await zip.file('word/_rels/document.xml.rels').async('string'); let add='';
+    fotos63.forEach((f,i)=>{ f.rId='rIdFoto63_'+(i+1); f.id=990000+i;
+      zip.file('word/media/'+f.nome, f.bytes);
+      add+=`<Relationship Id="${f.rId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/${f.nome}"/>`; });
+    zip.file('word/_rels/document.xml.rels', rels.replace('</Relationships>', add+'</Relationships>'));
+  }
   // cabeçalho: período + medição via propriedades do documento
   const coreFile=zip.file('docProps/core.xml');
   if(coreFile && (periodo||medicao)) zip.file('docProps/core.xml', RRsetCore(await coreFile.async('string'), periodo, medicao));
@@ -3954,6 +4018,7 @@ async function RRinjetar(templateArrayBuffer, texto62, periodo, medicao, planilh
   // financeiro: Quadro 8 + parágrafo-resumo (se a planilha de medição foi enviada)
   if(planilhaWb){ const pc=RRlerPosicao(planilhaWb);
     if(pc.itens.length){ doc2=RRquadro8(doc2, pc.itens); doc2=RRsummaryQ8(doc2, pc.resumo, periodo); } }
+  if(fotos63 && fotos63.length) doc2=RRreplace63(doc2, RRgerar63(fotos63));  // monta o 6.3 com as fotos
   doc2=RRgrifarPendentes(doc2);   // grifa legendas das imagens que a usuária insere na mão
   zip.file('word/document.xml', doc2);
   return await zip.generateAsync({type:'blob',compression:'DEFLATE'});
@@ -3982,6 +4047,8 @@ function viewGerarRelatorio(){
       </div>
       <label style="margin-top:12px">Planilha de Medição (.xlsx) — para o financeiro/Quadro 8 <span class="muted">(opcional)</span></label>
       <input type="file" id="rrPlan" accept=".xlsx">
+      <label style="margin-top:12px">Pasta de fotos — para o resumo fotográfico 6.3 <span class="muted">(opcional; usa uma foto de cada pasta rodovia+serviço)</span></label>
+      <input type="file" id="rrFotos" webkitdirectory directory multiple>
       <p class="muted" id="rrInfo" style="font-size:12px;margin:10px 0 0"></p>
     </div>
     <div id="rrForm" style="max-width:900px"></div>
@@ -4052,6 +4119,35 @@ function rrColeta(){
   return resp;
 }
 
+/* qual bloco do 6.3 a pasta pertence (pelo nome) */
+function rrBlock(folder){ const l=folder.toLowerCase();
+  if(l.includes('vertical')) return 'vertical';
+  if(l.includes('defensa')) return 'defensas';
+  if(l.includes('apoio')) return 'apoio';
+  if(l.includes('inova')) return 'inovacao';
+  return null; }
+/* dimensões da imagem (px) */
+function rrDims(file){ return new Promise(res=>{ const img=new Image(); const url=URL.createObjectURL(file);
+  img.onload=()=>{ res({w:img.naturalWidth||1600,h:img.naturalHeight||1200}); URL.revokeObjectURL(url); };
+  img.onerror=()=>{ res({w:1600,h:1200}); URL.revokeObjectURL(url); }; img.src=url; }); }
+/* prepara as fotos do 6.3: uma por pasta rodovia+serviço */
+async function rrPrepararFotos63(){
+  const fl=document.getElementById('rrFotos').files;
+  if(!fl || !fl.length || typeof RFpastasDe!=='function') return null;
+  const pastas=RFpastasDe(fl); const IMG={jpg:'jpeg',jpeg:'jpeg',png:'png'}; const EMU=914400;
+  const maxW=Math.round(4.6*EMU), maxH=Math.round(3.4*EMU); const fotos=[];
+  for(const folder of Object.keys(pastas).sort((a,b)=>a.localeCompare(b,undefined,{numeric:true}))){
+    const block=rrBlock(folder); if(!block) continue;
+    const file=pastas[folder][0]; if(!file) continue;
+    const e=IMG[(file.name.split('.').pop()||'').toLowerCase()]||'jpeg';
+    const d=await rrDims(file); const sc=Math.min(maxW/d.w, maxH/d.h);
+    fotos.push({block, rodovia:RFnaturalPR(folder), servico:RFservico(folder),
+      servicoLow:RFservico(folder).toLowerCase(), nome:`foto63_${fotos.length+1}.${e}`,
+      bytes:new Uint8Array(await file.arrayBuffer()), cx:Math.round(d.w*sc), cy:Math.round(d.h*sc)});
+  }
+  return fotos.length?fotos:null;
+}
+
 async function rrGerar(){
   const out=document.getElementById("rrOut");
   if(!RR_DADOS){ toast("Leia a PROD05 primeiro"); return; }
@@ -4062,13 +4158,14 @@ async function rrGerar(){
     const texto=RRgerar62(RR_DADOS, resp, per||'[período]');
     let planWb=null; const fPlan=document.getElementById('rrPlan').files[0];
     if(fPlan && typeof XLSX!=='undefined') planWb=XLSX.read(new Uint8Array(await fPlan.arrayBuffer()),{type:"array",cellDates:true});
+    const fotos63=await rrPrepararFotos63();
     const tpl=await (await fetch("dados/registro/modelo_relatorio.docx",{cache:"no-store"})).arrayBuffer();
-    const blob=await RRinjetar(tpl, texto, per, med, planWb);
+    const blob=await RRinjetar(tpl, texto, per, med, planWb, fotos63);
     const nome=`Relatorio_Supervisao${med?'_Med'+med:''}.docx`;
     const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=nome;
     document.body.appendChild(a); a.click(); setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); },1500);
     out.innerHTML=`<div class="panel" style="border-left:4px solid var(--verde)"><h3>✓ Gerado: ${esc(nome)}</h3>
-      <div class="muted" style="font-size:13px">Cabeçalho, 6.2 (situação e % deduzidos) ${fPlan?'e Quadro 8':''} já vêm preenchidos. Abra no Word, complete as <span style="background:#ff0;padding:0 3px">lacunas amarelas</span> (contexto/quantidades) e insira as imagens do mês.</div></div>`;
+      <div class="muted" style="font-size:13px">Cabeçalho, 6.2 (situação e % deduzidos)${fPlan?', Quadro 8':''}${fotos63?' e o 6.3 (fotos)':''} já vêm preenchidos. Abra no Word, atualize os campos (Ctrl+A, F9), complete as <span style="background:#ff0;padding:0 3px">lacunas amarelas</span> e insira as demais imagens.</div></div>`;
     toast("Word gerado");
   }catch(e){ console.error(e); out.innerHTML=`<div class="hint" style="border-color:var(--vermelho)">Erro: ${esc((e&&e.message)||e)}</div>`; toast("Falha ao gerar"); }
 }
