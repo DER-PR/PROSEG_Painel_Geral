@@ -3692,6 +3692,24 @@ const RR_SIT_V={iniciada:'foram iniciadas as instalações de', continuada:'tive
 
 function RRlista(rods){ return rods.length>1 ? rods.slice(0,-1).join(', ')+' e '+rods[rods.length-1] : (rods[0]||''); }
 
+/* % pendente da rodovia (vertical) para o relatório da medição N:
+   placas medidas em medições 1..N = feitas; sem medição ou medição > N = pendentes.
+   Usa os dados do painel (manifest + medicoes). Retorna null se não houver base. */
+function RRpctPendente(rodovia, medN){
+  if(typeof manifest==='undefined' || !manifest.length || !medN) return null;
+  const norm = (typeof normRodQ==='function') ? normRodQ : (s=>String(s||'').toUpperCase().replace(/[^A-Z0-9]/g,''));
+  const alvo = norm(rodovia);
+  const nss = manifest.filter(m=> norm(m.rodovia)===alvo);
+  if(!nss.length) return null;
+  let total=0, medido=0;
+  for(const m of nss){ total += (m.totalPlacas||0);
+    const mp = (typeof medicoes!=='undefined' && medicoes[m.id]) ? medicoes[m.id] : {};
+    for(const k in mp){ const v=mp[k]; if(v!==''&&v!=null && Number(v)<=medN) medido++; }
+  }
+  if(!total) return null;
+  return Math.max(0, Math.round((total-medido)/total*100));
+}
+
 /* ---- gera o texto do 6.2 (rascunho) ---- */
 function RRgerar62(dados, resp, periodo){
   const L=['6.2 SERVIÇOS EXECUTADOS',
@@ -3948,7 +3966,7 @@ function viewGerarRelatorio(){
       <p class="muted" style="margin-top:0;font-size:13px">Envie a planilha <b>PROD05</b>. O painel detecta os serviços de cada bloco (Vertical, Defensas, Apoio, Inovação), você <b>responde a situação de cada um</b>, e baixa o Word com a <b>descrição dos serviços (6.2)</b> já montada. As lacunas de contexto ficam <span style="background:#ff0;padding:0 3px">destacadas em amarelo</span> no Word.</p>
       <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:end">
         <div style="flex:2;min-width:240px"><label>Planilha PROD05 (.xlsx)</label><input type="file" id="rrProd" accept=".xlsx" onchange="rrLer()"></div>
-        <div style="min-width:90px"><label>Medição</label><input type="text" id="rrMed" placeholder="57"></div>
+        <div style="min-width:90px"><label>Medição</label><input type="text" id="rrMed" placeholder="57" onchange="rrAtualizarPctPendente()" oninput="rrAtualizarPctPendente()"></div>
         <div style="flex:1;min-width:200px"><label>Período</label><input type="text" id="rrPer" placeholder="01/06/2026 a 30/06/2026"></div>
       </div>
       <label style="margin-top:12px">Planilha de Medição (.xlsx) — para o financeiro/Quadro 8 <span class="muted">(opcional)</span></label>
@@ -3992,7 +4010,7 @@ function rrRenderForm(){
     return rrLinhaRod('vertical',rod,
       `${rrSelect('rr_vertical_sit_'+s,RR_SIT_OPTS)}
        <input type="text" id="rr_vertical_ns_${s}" placeholder="data da NS" style="width:110px;padding:5px;border:1px solid var(--borda);border-radius:6px">
-       <input type="text" id="rr_vertical_pct_${s}" placeholder="% pend." style="width:70px;padding:5px;border:1px solid var(--borda);border-radius:6px">
+       <input type="text" id="rr_vertical_pct_${s}" placeholder="% pend." oninput="this.dataset.auto='0'" title="Preenchido automático pela medição (dados do painel) — edite se quiser" style="width:70px;padding:5px;border:1px solid var(--borda);border-radius:6px">
        <input type="text" id="rr_vertical_ctx_${s}" placeholder="contexto (opcional)" style="flex:1;min-width:160px;padding:5px;border:1px solid var(--borda);border-radius:6px">`);
   }).join('');
 
@@ -4025,7 +4043,21 @@ function rrRenderForm(){
     box('6.2.3 &nbsp;Serviço de Apoio à Operação', apoioCorpo, 'Nenhuma rodovia detectada.')+
     box('6.2.4 &nbsp;Inovação Tecnológica', inovCorpo, 'Nenhuma rodovia detectada.')+
     `<div style="margin-top:14px"><button class="btn pri" onclick="rrGerar()">📄 Gerar Word do 6.2</button>
-      <span class="muted" style="font-size:12px;margin-left:10px">Desmarque as rodovias que não devem entrar em cada bloco.</span></div>`;
+      <span class="muted" style="font-size:12px;margin-left:10px">Desmarque as rodovias que não devem entrar em cada bloco. O <b>% pend.</b> da vertical é calculado pela medição (dados do painel) — ajuste se quiser.</span></div>`;
+  rrAtualizarPctPendente();
+}
+
+/* preenche o "% pend." de cada rodovia vertical com base na medição (dados do painel) */
+function rrAtualizarPctPendente(){
+  if(!RR_DADOS || typeof RRpctPendente!=='function') return;
+  const medN = Number((document.getElementById('rrMed')||{}).value)||0;
+  if(!medN) return;
+  Object.keys(RR_DADOS.vertical).forEach(rod=>{
+    const el=document.getElementById('rr_vertical_pct_'+rrSan(rod));
+    if(!el || el.dataset.auto==='0') return;          // não mexe se você editou
+    const p=RRpctPendente(rod, medN);
+    if(p!=null){ el.value=p; el.dataset.auto='1'; }
+  });
 }
 
 function rrVal(id){ const el=document.getElementById(id); return el?el.value.trim():''; }
