@@ -3735,15 +3735,26 @@ function RRgerar62(dados, resp, periodo){
   L.push('6.2.1 SINALIZAÇÃO VERTICAL');
   const rv=(resp.vertical&&resp.vertical._rods)||Object.keys(dados.vertical);
   if(!rv.length) L.push('Não houve serviços de sinalização vertical no período de referência.');
-  for(const rod of rv){ const r=(resp.vertical&&resp.vertical[rod])||{};
+  const PLACAS_PADRAO='placas de sinalização em alumínio composto, com película retrorrefletiva Tipo III prismática e suportes ecológicos colapsíveis de seção 80 x 80 mm';
+  rv.forEach((rod, i)=>{ const r=(resp.vertical&&resp.vertical[rod])||{};
     const sit=r.situacao||'iniciada'; const verbo=RR_SIT_V[sit]||RR_SIT_V.iniciada;
-    const prep=(sit==='concluida'||sit==='iniciada_concluida')?'em atendimento à':'conforme prevista na';
-    L.push(`No mês em referência, ${verbo} sinalização vertical na rodovia ${rod}, ${prep} Nota de Serviço emitida para o trecho. `+
-      `Os serviços contemplaram a implantação de placas de sinalização em alumínio composto, com película retrorrefletiva Tipo III `+
-      `prismática e suportes ecológicos colapsíveis de seção 80 x 80 mm. [quantidade/tipos de placas, se aplicável]`);
+    const desc = r.placas || PLACAS_PADRAO;                 // #2 preenche r.placas com as variações marcadas
+    const brk = r.placas ? '' : ' [tipos de placas, se aplicável]';
+    const abertura=[
+      `No mês em referência, ${verbo} sinalização vertical na rodovia ${rod}, conforme Nota de Serviço emitida para o trecho. Os serviços contemplaram a implantação de ${desc}.${brk}`,
+      `Na rodovia ${rod}, ${verbo} sinalização vertical durante o período de referência, em atendimento à Nota de Serviço. Foram implantadas ${desc}.${brk}`,
+      `Em cumprimento à Nota de Serviço prevista para o trecho, ${verbo} sinalização vertical na rodovia ${rod} no mês de referência. A intervenção consistiu na instalação de ${desc}.${brk}`
+    ];
+    L.push(abertura[i%3]);
     if(sit!=='concluida' && sit!=='iniciada_concluida'){ const p=(r.pct_pendente!=null&&r.pct_pendente!=='')?r.pct_pendente+'%':'[X]%';
-      L.push(`Informa-se que a Nota de Serviço não foi concluída no período em referência, permanecendo ${p} dos serviços pendentes para execução nos meses subsequentes.`); }
-  }
+      const status=[
+        `Informa-se que a Nota de Serviço não foi concluída no período em referência, permanecendo ${p} dos serviços pendentes para execução nos meses subsequentes.`,
+        `Ressalta-se que ${p} dos serviços permanecem pendentes, com execução prevista para os meses seguintes.`,
+        `A Nota de Serviço não foi integralmente concluída no período, restando ${p} dos serviços para execução nos próximos meses.`
+      ];
+      L.push(status[i%3]);
+    }
+  });
   L.push('');
   // 6.2.2 DEFENSAS
   L.push('6.2.2 DISPOSITIVOS DE SEGURANÇA (DEFENSAS METÁLICAS)');
