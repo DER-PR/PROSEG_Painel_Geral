@@ -3986,6 +3986,55 @@ function RRreplace63(docXml, novo63){
   return docXml.slice(0, ms[iIni].index) + novo63 + docXml.slice(ms[iFim].index);
 }
 
+/* ===== 8.3 REGISTRO FOTOGRÁFICO — tabelas com as fotos (uma por rodovia×serviço) ===== */
+const RRF_BORD='<w:tblBorders><w:top w:val="single" w:sz="4" w:space="0" w:color="7F7F7F"/><w:left w:val="single" w:sz="4" w:space="0" w:color="7F7F7F"/><w:bottom w:val="single" w:sz="4" w:space="0" w:color="7F7F7F"/><w:right w:val="single" w:sz="4" w:space="0" w:color="7F7F7F"/><w:insideH w:val="single" w:sz="4" w:space="0" w:color="7F7F7F"/><w:insideV w:val="single" w:sz="4" w:space="0" w:color="7F7F7F"/></w:tblBorders>';
+function RRdrawing(rId,cx,cy,id){
+  return `<w:drawing ${RR_IMGNS}><wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="${cx}" cy="${cy}"/>`+
+    `<wp:effectExtent l="0" t="0" r="0" b="0"/><wp:docPr id="${id}" name="Imagem ${id}"/>`+
+    `<wp:cNvGraphicFramePr><a:graphicFrameLocks noChangeAspect="1"/></wp:cNvGraphicFramePr>`+
+    `<a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic>`+
+    `<pic:nvPicPr><pic:cNvPr id="${id}" name="Imagem ${id}"/><pic:cNvPicPr/></pic:nvPicPr>`+
+    `<pic:blipFill><a:blip r:embed="${rId}"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>`+
+    `<pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${cx}" cy="${cy}"/></a:xfrm>`+
+    `<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing>`;
+}
+function RRfTitulo(t){ return `<w:p><w:pPr><w:keepNext/><w:spacing w:before="160" w:after="60"/><w:jc w:val="center"/></w:pPr>`+
+  `<w:r><w:rPr>${RR_FONT}<w:b/><w:sz w:val="22"/><w:szCs w:val="22"/></w:rPr><w:t xml:space="preserve">${RResc(t)}</w:t></w:r></w:p>`; }
+function RRfLabel(n){ const nn=String(n).padStart(2,'0'); const inner = n?`FOTO ${nn}`:'';
+  return `<w:tc><w:tcPr><w:tcW w:w="4535" w:type="dxa"/><w:tcMar><w:top w:w="40" w:type="dxa"/><w:left w:w="80" w:type="dxa"/><w:bottom w:w="40" w:type="dxa"/><w:right w:w="80" w:type="dxa"/></w:tcMar><w:vAlign w:val="center"/></w:tcPr>`+
+    `<w:p><w:pPr><w:keepNext/><w:spacing w:after="0" w:line="240" w:lineRule="auto"/><w:jc w:val="center"/></w:pPr>`+
+    `<w:r><w:rPr>${RR_FONT}<w:b/><w:sz w:val="18"/><w:szCs w:val="18"/></w:rPr><w:t xml:space="preserve">${inner}</w:t></w:r></w:p></w:tc>`; }
+function RRfImg(f){
+  const img = f ? `<w:r><w:rPr><w:noProof/></w:rPr>${RRdrawing(f.rId,f.cx,f.cy,f.id)}</w:r>` : '';
+  return `<w:tc><w:tcPr><w:tcW w:w="4535" w:type="dxa"/><w:vAlign w:val="center"/></w:tcPr>`+
+    `<w:p><w:pPr><w:keepNext/><w:spacing w:after="0"/><w:jc w:val="center"/></w:pPr>${img}</w:p></w:tc>`; }
+function RRfTabela(fotos){
+  let rows='';
+  for(let i=0;i<fotos.length;i+=2){ const a=fotos[i], b=fotos[i+1]||null;
+    rows+=`<w:tr><w:trPr><w:cantSplit/><w:jc w:val="center"/></w:trPr>${RRfLabel(i+1)}${b?RRfLabel(i+2):RRfLabel(0)}</w:tr>`;
+    rows+=`<w:tr><w:trPr><w:cantSplit/><w:trHeight w:val="2500"/><w:jc w:val="center"/></w:trPr>${RRfImg(a)}${RRfImg(b)}</w:tr>`;
+  }
+  return `<w:tbl><w:tblPr><w:tblW w:w="9070" w:type="dxa"/><w:jc w:val="center"/>${RRF_BORD}`+
+    `<w:tblLook w:val="0600" w:firstRow="0" w:lastRow="0" w:firstColumn="0" w:lastColumn="0" w:noHBand="1" w:noVBand="1"/></w:tblPr>`+
+    `<w:tblGrid><w:gridCol w:w="4535"/><w:gridCol w:w="4535"/></w:tblGrid>${rows}</w:tbl>`; }
+function RRregFoto(grupos){ let out='';
+  for(const g of grupos){ out+=RRfTitulo(g.titulo)+RRfTabela(g.fotos)+'<w:p><w:pPr><w:spacing w:after="0"/></w:pPr></w:p>'; }
+  return out; }
+/* insere as tabelas logo abaixo do título "REGISTRO FOTOGRÁFICO" (8.3), até o próximo Título 1 (ATESTO) */
+function RRreplaceRegFoto(docXml, novo){
+  const ms=[...docXml.matchAll(/<w:p\b[^>]*>[\s\S]*?<\/w:p>/g)];
+  const txt=s=>s.replace(/<[^>]+>/g,'');
+  let ini=-1, fim=-1;
+  for(let k=0;k<ms.length;k++){ const p=ms[k][0], t=txt(p);
+    if(ini<0 && /w:val="Ttulo2"/.test(p) && /REGISTRO\s*FOTOGR/i.test(t)) ini=k;
+    else if(ini>=0 && /w:val="Ttulo1"/.test(p)){ fim=k; break; }
+  }
+  if(ini<0) return docXml;
+  const apos=ms[ini].index+ms[ini][0].length;
+  const fimPos=fim>=0?ms[fim].index:apos;
+  return docXml.slice(0,apos)+novo+docXml.slice(fimPos);
+}
+
 /* ===== grifar em amarelo os itens que a usuária insere na mão (imagens) ===== */
 function RRgrifarRuns(pXml){
   return pXml.replace(/<w:r\b([^>]*)>([\s\S]*?)<\/w:r>/g, function(m, attrs, inner){
@@ -4050,8 +4099,16 @@ function RRmesDePeriodo(periodo){ // "01/07/2026 a 31/07/2026" -> "julho de 2026
   return `${RR_MESES[mes-1]} de ${m[2]}`;
 }
 
-async function RRinjetar(templateArrayBuffer, texto62, periodo, medicao, planilhaWb, sk63){
+async function RRinjetar(templateArrayBuffer, texto62, periodo, medicao, planilhaWb, sk63, regFotos){
   const zip=await JSZip.loadAsync(templateArrayBuffer);
+  // 8.3 registro fotográfico: fotos do anexo (media + rels)
+  if(regFotos && regFotos.length){
+    let rels=await zip.file('word/_rels/document.xml.rels').async('string'); let add=''; let n=0;
+    regFotos.forEach(g=> g.fotos.forEach(f=>{ n++; f.rId='rIdRF_'+n; f.id=980000+n; f.nome=`rf_${n}.${f.ext}`;
+      zip.file('word/media/'+f.nome, f.bytes);
+      add+=`<Relationship Id="${f.rId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/${f.nome}"/>`; }));
+    zip.file('word/_rels/document.xml.rels', rels.replace('</Relationships>', add+'</Relationships>'));
+  }
   // cabeçalho: período + medição via propriedades do documento
   const coreFile=zip.file('docProps/core.xml');
   if(coreFile && (periodo||medicao)) zip.file('docProps/core.xml', RRsetCore(await coreFile.async('string'), periodo, medicao));
@@ -4076,6 +4133,7 @@ async function RRinjetar(templateArrayBuffer, texto62, periodo, medicao, planilh
   if(planilhaWb){ const pc=RRlerPosicao(planilhaWb);
     if(pc.itens.length){ doc2=RRquadro8(doc2, pc.itens); doc2=RRsummaryQ8(doc2, pc.resumo, periodo); } }
   if(sk63 && sk63.length) doc2=RRreplace63(doc2, RRgerar63(sk63));  // monta o esqueleto do 6.3 (títulos + espaços)
+  if(regFotos && regFotos.length) doc2=RRreplaceRegFoto(doc2, RRregFoto(regFotos));  // 8.3 registro fotográfico
   doc2=RRgrifarPendentes(doc2);   // grifa legendas das imagens que a usuária insere na mão
   zip.file('word/document.xml', doc2);
   return await zip.generateAsync({type:'blob',compression:'DEFLATE'});
@@ -4143,6 +4201,8 @@ function viewGerarRelatorio(){
       </div>
       <label style="margin-top:12px">Planilha de Medição (.xlsx) — para o financeiro/Quadro 8 <span class="muted">(opcional)</span></label>
       <input type="file" id="rrPlan" accept=".xlsx">
+      <label style="margin-top:12px">Pasta de fotos — Registro Fotográfico do anexo (8.3) <span class="muted">(opcional; mesma pasta do Excel: uma tabela por rodovia com todas as fotos inseridas)</span></label>
+      <input type="file" id="rrRegFotos" webkitdirectory directory multiple>
       <p class="muted" id="rrInfo" style="font-size:12px;margin:10px 0 0"></p>
     </div>
     <div id="rrForm" style="max-width:900px"></div>
@@ -4215,6 +4275,27 @@ function rrColeta(){
   return resp;
 }
 
+/* dimensões da imagem (px) */
+function rrDims(file){ return new Promise(res=>{ const img=new Image(); const url=URL.createObjectURL(file);
+  img.onload=()=>{ res({w:img.naturalWidth||1600,h:img.naturalHeight||1200}); URL.revokeObjectURL(url); };
+  img.onerror=()=>{ res({w:1600,h:1200}); URL.revokeObjectURL(url); }; img.src=url; }); }
+/* prepara o registro fotográfico (8.3): por pasta rodovia×serviço, TODAS as fotos */
+async function rrPrepararRegFoto(){
+  const fl=document.getElementById('rrRegFotos').files;
+  if(!fl || !fl.length || typeof RFpastasDe!=='function') return null;
+  const pastas=RFpastasDe(fl); const IMG={jpg:'jpeg',jpeg:'jpeg',png:'png'}; const EMU=914400;
+  const maxW=Math.round(3.0*EMU), maxH=Math.round(1.6*EMU); const grupos=[];
+  for(const folder of Object.keys(pastas).sort((a,b)=>a.localeCompare(b,undefined,{numeric:true}))){
+    const arqs=(pastas[folder]||[]).slice().sort((a,b)=>a.name.localeCompare(b.name,undefined,{numeric:true}));
+    const fotos=[];
+    for(const file of arqs){ const ext=IMG[(file.name.split('.').pop()||'').toLowerCase()]; if(!ext) continue;
+      const d=await rrDims(file); const sc=Math.min(maxW/d.w, maxH/d.h);
+      fotos.push({ext, bytes:new Uint8Array(await file.arrayBuffer()), cx:Math.round(d.w*sc), cy:Math.round(d.h*sc)}); }
+    if(fotos.length) grupos.push({titulo:`${RFservico(folder)} rodovia ${RFnaturalPR(folder)}`, fotos});
+  }
+  return grupos.length?grupos:null;
+}
+
 async function rrGerar(){
   const out=document.getElementById("rrOut");
   if(!RR_DADOS){ toast("Leia a PROD05 primeiro"); return; }
@@ -4226,13 +4307,15 @@ async function rrGerar(){
     let planWb=null; const fPlan=document.getElementById('rrPlan').files[0];
     if(fPlan && typeof XLSX!=='undefined') planWb=XLSX.read(new Uint8Array(await fPlan.arrayBuffer()),{type:"array",cellDates:true});
     const sk63=rrColeta63();
+    const regFotos=await rrPrepararRegFoto();
     const tpl=await (await fetch("dados/registro/modelo_relatorio.docx",{cache:"no-store"})).arrayBuffer();
-    const blob=await RRinjetar(tpl, texto, per, med, planWb, sk63);
+    const blob=await RRinjetar(tpl, texto, per, med, planWb, sk63, regFotos);
     const nome=`Relatorio_Supervisao${med?'_Med'+med:''}.docx`;
     const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=nome;
     document.body.appendChild(a); a.click(); setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); },1500);
+    const nfoto = regFotos?regFotos.reduce((s,g)=>s+g.fotos.length,0):0;
     out.innerHTML=`<div class="panel" style="border-left:4px solid var(--verde)"><h3>✓ Gerado: ${esc(nome)}</h3>
-      <div class="muted" style="font-size:13px">Cabeçalho, 6.2 (situação e % deduzidos)${fPlan?', Quadro 8':''}${sk63?' e o esqueleto do 6.3 (títulos "Figura X" + espaços)':''} já vêm preenchidos. Abra no Word, atualize os campos (Ctrl+A, F9), cole as fotos nos <span style="background:#ff0;padding:0 3px">espaços amarelos</span> e complete as demais lacunas.</div></div>`;
+      <div class="muted" style="font-size:13px">Cabeçalho, 6.2 (situação e % deduzidos)${fPlan?', Quadro 8':''}${sk63?', esqueleto do 6.3':''}${nfoto?`, e o Registro Fotográfico 8.3 (${nfoto} foto(s) já inseridas)`:''} já vêm preenchidos. Abra no Word, atualize os campos (Ctrl+A, F9), cole as fotos nos <span style="background:#ff0;padding:0 3px">espaços amarelos</span> do 6.3 e complete as demais lacunas.</div></div>`;
     toast("Word gerado");
   }catch(e){ console.error(e); out.innerHTML=`<div class="hint" style="border-color:var(--vermelho)">Erro: ${esc((e&&e.message)||e)}</div>`; toast("Falha ao gerar"); }
 }
