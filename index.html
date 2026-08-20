@@ -3998,27 +3998,40 @@ function RRdrawing(rId,cx,cy,id){
     `<pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${cx}" cy="${cy}"/></a:xfrm>`+
     `<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing>`;
 }
-function RRfTitulo(t){ return `<w:p><w:pPr><w:keepNext/><w:spacing w:before="160" w:after="60"/><w:jc w:val="center"/></w:pPr>`+
-  `<w:r><w:rPr>${RR_FONT}<w:b/><w:sz w:val="22"/><w:szCs w:val="22"/></w:rPr><w:t xml:space="preserve">${RResc(t)}</w:t></w:r></w:p>`; }
+/* linha-título dentro da tabela (mescla as 2 colunas, sem bordas laterais/topo) — viaja grudada na grade;
+   brk=true força começar em nova página SEM criar página em branco (pageBreakBefore no próprio título) */
+function RRfTitRow(t, brk){
+  return `<w:tr><w:trPr><w:cantSplit/><w:jc w:val="center"/></w:trPr>`+
+    `<w:tc><w:tcPr><w:tcW w:w="9070" w:type="dxa"/><w:gridSpan w:val="2"/>`+
+    `<w:tcBorders><w:top w:val="nil"/><w:left w:val="nil"/><w:right w:val="nil"/><w:bottom w:val="single" w:sz="4" w:space="0" w:color="7F7F7F"/></w:tcBorders>`+
+    `<w:tcMar><w:top w:w="40" w:type="dxa"/><w:bottom w:w="40" w:type="dxa"/></w:tcMar><w:vAlign w:val="center"/></w:tcPr>`+
+    `<w:p><w:pPr>${brk?'<w:pageBreakBefore/>':''}<w:keepNext/><w:spacing w:before="60" w:after="60" w:line="240" w:lineRule="auto"/><w:jc w:val="center"/></w:pPr>`+
+    `<w:r><w:rPr>${RR_FONT}<w:b/><w:sz w:val="22"/><w:szCs w:val="22"/></w:rPr><w:t xml:space="preserve">${RResc(t)}</w:t></w:r></w:p></w:tc></w:tr>`; }
 function RRfLabel(n){ const nn=String(n).padStart(2,'0'); const inner = n?`FOTO ${nn}`:'';
   return `<w:tc><w:tcPr><w:tcW w:w="4535" w:type="dxa"/><w:tcMar><w:top w:w="40" w:type="dxa"/><w:left w:w="80" w:type="dxa"/><w:bottom w:w="40" w:type="dxa"/><w:right w:w="80" w:type="dxa"/></w:tcMar><w:vAlign w:val="center"/></w:tcPr>`+
     `<w:p><w:pPr><w:keepNext/><w:spacing w:after="0" w:line="240" w:lineRule="auto"/><w:jc w:val="center"/></w:pPr>`+
     `<w:r><w:rPr>${RR_FONT}<w:b/><w:sz w:val="18"/><w:szCs w:val="18"/></w:rPr><w:t xml:space="preserve">${inner}</w:t></w:r></w:p></w:tc>`; }
 function RRfImg(f){
   const img = f ? `<w:r><w:rPr><w:noProof/></w:rPr>${RRdrawing(f.rId,f.cx,f.cy,f.id)}</w:r>` : '';
-  return `<w:tc><w:tcPr><w:tcW w:w="4535" w:type="dxa"/><w:vAlign w:val="center"/></w:tcPr>`+
-    `<w:p><w:pPr><w:keepNext/><w:spacing w:after="0"/><w:jc w:val="center"/></w:pPr>${img}</w:p></w:tc>`; }
-function RRfTabela(fotos){
-  let rows='';
+  return `<w:tc><w:tcPr><w:tcW w:w="4535" w:type="dxa"/><w:tcMar><w:top w:w="0" w:type="dxa"/><w:left w:w="0" w:type="dxa"/><w:bottom w:w="0" w:type="dxa"/><w:right w:w="0" w:type="dxa"/></w:tcMar><w:vAlign w:val="center"/></w:tcPr>`+
+    `<w:p><w:pPr><w:keepNext/><w:spacing w:before="0" w:after="0"/><w:jc w:val="center"/></w:pPr>${img}</w:p></w:tc>`; }
+function RRfTabela(titulo, fotos, start, brk){ start=start||0;
+  let rows=RRfTitRow(titulo, brk);
   for(let i=0;i<fotos.length;i+=2){ const a=fotos[i], b=fotos[i+1]||null;
-    rows+=`<w:tr><w:trPr><w:cantSplit/><w:jc w:val="center"/></w:trPr>${RRfLabel(i+1)}${b?RRfLabel(i+2):RRfLabel(0)}</w:tr>`;
-    rows+=`<w:tr><w:trPr><w:cantSplit/><w:trHeight w:val="2500"/><w:jc w:val="center"/></w:trPr>${RRfImg(a)}${RRfImg(b)}</w:tr>`;
+    rows+=`<w:tr><w:trPr><w:cantSplit/><w:jc w:val="center"/></w:trPr>${RRfLabel(start+i+1)}${b?RRfLabel(start+i+2):RRfLabel(0)}</w:tr>`;
+    rows+=`<w:tr><w:trPr><w:cantSplit/><w:jc w:val="center"/></w:trPr>${RRfImg(a)}${RRfImg(b)}</w:tr>`;
   }
   return `<w:tbl><w:tblPr><w:tblW w:w="9070" w:type="dxa"/><w:jc w:val="center"/>${RRF_BORD}`+
     `<w:tblLook w:val="0600" w:firstRow="0" w:lastRow="0" w:firstColumn="0" w:lastColumn="0" w:noHBand="1" w:noVBand="1"/></w:tblPr>`+
     `<w:tblGrid><w:gridCol w:w="4535"/><w:gridCol w:w="4535"/></w:tblGrid>${rows}</w:tbl>`; }
+/* por rodovia: no máx 8 fotos por página; passando disso, nova página repetindo o título e seguindo a numeração */
 function RRregFoto(grupos){ let out='';
-  for(const g of grupos){ out+=RRfTitulo(g.titulo)+RRfTabela(g.fotos)+'<w:p><w:pPr><w:spacing w:after="0"/></w:pPr></w:p>'; }
+  for(const g of grupos){
+    for(let off=0, ci=0; off<g.fotos.length; off+=8, ci++){ const ch=g.fotos.slice(off, off+8);
+      out+=RRfTabela(g.titulo, ch, off, ci>0);   // ci>0 -> quebra de página antes (título repete)
+    }
+    out+='<w:p><w:pPr><w:spacing w:after="0"/></w:pPr></w:p>';   // respiro entre rodovias
+  }
   return out; }
 /* insere as tabelas logo abaixo do título "REGISTRO FOTOGRÁFICO" (8.3), até o próximo Título 1 (ATESTO) */
 function RRreplaceRegFoto(docXml, novo){
@@ -4290,7 +4303,7 @@ async function rrPrepararRegFoto(){
   const fl=document.getElementById('rrRegFotos').files;
   if(!fl || !fl.length || typeof rfPastasDe!=='function') return null;
   const pastas=rfPastasDe(fl); const OK=['jpg','jpeg','png']; const EMU=914400;
-  const maxW=Math.round(3.0*EMU), maxH=Math.round(1.6*EMU); const grupos=[];
+  const maxW=Math.round(3.1*EMU), maxH=Math.round(2.0*EMU); const grupos=[];
   for(const folder of Object.keys(pastas).sort((a,b)=>a.localeCompare(b,undefined,{numeric:true}))){
     const arqs=(pastas[folder]||[]).slice().sort((a,b)=>a.name.localeCompare(b.name,undefined,{numeric:true}));
     const fotos=[];
