@@ -4288,8 +4288,8 @@ function rrDims(file){ return new Promise(res=>{ const img=new Image(); const ur
 /* prepara o registro fotográfico (8.3): por pasta rodovia×serviço, TODAS as fotos */
 async function rrPrepararRegFoto(){
   const fl=document.getElementById('rrRegFotos').files;
-  if(!fl || !fl.length || typeof RFpastasDe!=='function') return null;
-  const pastas=RFpastasDe(fl); const OK=['jpg','jpeg','png']; const EMU=914400;
+  if(!fl || !fl.length || typeof rfPastasDe!=='function') return null;
+  const pastas=rfPastasDe(fl); const OK=['jpg','jpeg','png']; const EMU=914400;
   const maxW=Math.round(3.0*EMU), maxH=Math.round(1.6*EMU); const grupos=[];
   for(const folder of Object.keys(pastas).sort((a,b)=>a.localeCompare(b,undefined,{numeric:true}))){
     const arqs=(pastas[folder]||[]).slice().sort((a,b)=>a.name.localeCompare(b.name,undefined,{numeric:true}));
