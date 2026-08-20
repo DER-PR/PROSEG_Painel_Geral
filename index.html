@@ -4103,11 +4103,17 @@ async function RRinjetar(templateArrayBuffer, texto62, periodo, medicao, planilh
   const zip=await JSZip.loadAsync(templateArrayBuffer);
   // 8.3 registro fotográfico: fotos do anexo (media + rels)
   if(regFotos && regFotos.length){
-    let rels=await zip.file('word/_rels/document.xml.rels').async('string'); let add=''; let n=0;
-    regFotos.forEach(g=> g.fotos.forEach(f=>{ n++; f.rId='rIdRF_'+n; f.id=980000+n; f.nome=`rf_${n}.${f.ext}`;
+    let rels=await zip.file('word/_rels/document.xml.rels').async('string'); let add=''; let n=0; const exts=new Set();
+    regFotos.forEach(g=> g.fotos.forEach(f=>{ n++; f.rId='rIdRF_'+n; f.id=980000+n; f.nome=`rf_${n}.${f.ext}`; exts.add(f.ext);
       zip.file('word/media/'+f.nome, f.bytes);
       add+=`<Relationship Id="${f.rId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/${f.nome}"/>`; }));
     zip.file('word/_rels/document.xml.rels', rels.replace('</Relationships>', add+'</Relationships>'));
+    // garante o Content-Type das extensões de imagem usadas (Word não exibe sem isso — ex.: JPG)
+    const CTMAP={jpg:'image/jpeg',jpeg:'image/jpeg',png:'image/png'};
+    let ct=await zip.file('[Content_Types].xml').async('string'); let addCt='';
+    exts.forEach(e=>{ if(!new RegExp('Extension="'+e+'"','i').test(ct)) addCt+=`<Default Extension="${e}" ContentType="${CTMAP[e]||'application/octet-stream'}"/>`; });
+    if(addCt) ct=ct.replace(/(<Types\b[^>]*>)/, '$1'+addCt);
+    zip.file('[Content_Types].xml', ct);
   }
   // cabeçalho: período + medição via propriedades do documento
   const coreFile=zip.file('docProps/core.xml');
@@ -4283,12 +4289,12 @@ function rrDims(file){ return new Promise(res=>{ const img=new Image(); const ur
 async function rrPrepararRegFoto(){
   const fl=document.getElementById('rrRegFotos').files;
   if(!fl || !fl.length || typeof RFpastasDe!=='function') return null;
-  const pastas=RFpastasDe(fl); const IMG={jpg:'jpeg',jpeg:'jpeg',png:'png'}; const EMU=914400;
+  const pastas=RFpastasDe(fl); const OK=['jpg','jpeg','png']; const EMU=914400;
   const maxW=Math.round(3.0*EMU), maxH=Math.round(1.6*EMU); const grupos=[];
   for(const folder of Object.keys(pastas).sort((a,b)=>a.localeCompare(b,undefined,{numeric:true}))){
     const arqs=(pastas[folder]||[]).slice().sort((a,b)=>a.name.localeCompare(b.name,undefined,{numeric:true}));
     const fotos=[];
-    for(const file of arqs){ const ext=IMG[(file.name.split('.').pop()||'').toLowerCase()]; if(!ext) continue;
+    for(const file of arqs){ const ext=(file.name.split('.').pop()||'').toLowerCase(); if(!OK.includes(ext)) continue;
       const d=await rrDims(file); const sc=Math.min(maxW/d.w, maxH/d.h);
       fotos.push({ext, bytes:new Uint8Array(await file.arrayBuffer()), cx:Math.round(d.w*sc), cy:Math.round(d.h*sc)}); }
     if(fotos.length) grupos.push({titulo:`${RFservico(folder)} rodovia ${RFnaturalPR(folder)}`, fotos});
