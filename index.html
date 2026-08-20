@@ -3651,17 +3651,60 @@ async function rfGerarZip(pastas, maps, med, per){
 const RR_COD_APOIO='892925', RR_COD_INOVACAO='898990';
 const RR_COD_DEFENSA=['890921','896385','895013','895015','896375','895666'];
 
+/* dicionário código→texto da sinalização vertical (colunas W=placa, Q=suporte, U=casca de pinus) */
+const RR_PLACA={
+  '895032':'placas de sinalização simples, em alumínio composto, instaladas em solo, com película retrorrefletiva Tipo III prismática',
+  '895002':'placas de sinalização simples, em alumínio composto, instaladas em solo, com película retrorrefletiva Tipo I prismática',
+  '895003':'placas de sinalização simples, em alumínio composto, do tipo aéreo, com película retrorrefletiva Tipo III',
+  '895033':'placas de sinalização simples, em alumínio composto, do tipo aéreo, com película retrorrefletiva Tipo X',
+  '895006':'placas de sinalização modulada, em alumínio composto, instaladas em solo, com película retrorrefletiva Tipo III',
+  '895004':'placas de sinalização modulada, em alumínio composto, instaladas em solo, com película retrorrefletiva Tipo I prismática',
+  '895063':'placas de sinalização modulada, em alumínio composto, do tipo aéreo, com película retrorrefletiva Tipo III',
+  '895007':'placas de sinalização modulada, em alumínio composto, do tipo aéreo, com película retrorrefletiva Tipo X'
+};
+const RR_SUPORTE={
+  '895008':'suportes ecológicos colapsíveis de seção 80 x 80 mm',
+  '822010':'suportes metálicos galvanizados a fogo, perfil "C" 110x70x25x2,00 mm, com altura de 3,00 m',
+  '821130':'suportes metálicos galvanizados a fogo, perfil "C" 110x70x25x2,00 mm, com altura de 4,00 m',
+  '822030':'suportes metálicos galvanizados a fogo, perfil "C" 250x85x25x2,70 mm, com altura de 5,00 m',
+  '895009':'semi-pórtico metálico Tipo I cônico contínuo (projeção de 5,50 m)',
+  '895011':'semi-pórtico metálico Tipo II cônico contínuo (projeção de 6,50 m)',
+  '895012':'semi-pórtico metálico Tipo II cônico contínuo duplo (vão de 6,00 m)',
+  '876000':'semi-pórtico simples de 6,00 m',
+  '871500':'pórtico simples (11,00 a 15,00 m)'
+};
+const RR_COD_CASCA='899120';
+/* monta a descrição dos serviços da rodovia (vertical) a partir dos códigos lidos da PROD */
+function RRdescVert(rod, dados){
+  const vc = dados && dados.vertCod && dados.vertCod[rod]; if(!vc) return '';
+  const join=(a)=> a.length>1 ? a.slice(0,-1).join('; ')+' e '+a[a.length-1] : (a[0]||'');
+  const pl=[...vc.placas].map(c=>RR_PLACA[c]).filter(Boolean);
+  const su=[...vc.suportes].map(c=>RR_SUPORTE[c]).filter(Boolean);
+  let t=''; if(pl.length) t+=join(pl);
+  if(su.length) t+=(t?', fixadas em ':'')+join(su);
+  if(vc.casca) t+=(t?', com ':'')+'colocação de casca de pinus, com apiloamento manual';
+  return t;
+}
+
 function RResc(t){ return String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function RRq(v){ return (Math.round(v*1000)/1000).toString(); }
 
 /* ---- lê PROD05 (por ENDEREÇO ABSOLUTO de célula) ---- */
 function RRlerProd(wb){
-  const dados={vertical:{}, defensas:{}, apoio:{}, inovacao:{}};
-  // VERTICAL: conta linhas por rodovia (col C)
+  const dados={vertical:{}, vertCod:{}, defensas:{}, apoio:{}, inovacao:{}};
+  // VERTICAL: conta linhas por rodovia (col C) e coleta códigos de placa (W), suporte (Q) e casca (U)
   const V=wb.Sheets['VERTICAL'];
   if(V && V['!ref']){ const rng=XLSX.utils.decode_range(V['!ref']);
     for(let r=rng.s.r; r<=rng.e.r; r++){ const c=V['C'+(r+1)]; const rod=c?String(c.v).trim():'';
-      if(/^PR[-\s]?\d+/.test(rod)) dados.vertical[rod]=(dados.vertical[rod]||0)+1; } }
+      if(!/^PR[-\s]?\d+/.test(rod)) continue;
+      dados.vertical[rod]=(dados.vertical[rod]||0)+1;
+      const vc=dados.vertCod[rod]||(dados.vertCod[rod]={placas:new Set(),suportes:new Set(),casca:false});
+      const W=V['W'+(r+1)], Q=V['Q'+(r+1)], U=V['U'+(r+1)];
+      const w=W?String(W.v).trim():''; const q=Q?String(Q.v).trim():''; const u=U?String(U.v).trim():'';
+      if(w && w!==RR_COD_APOIO) vc.placas.add(w);
+      if(q && q!=='-' && q!==RR_COD_APOIO) vc.suportes.add(q);
+      if(u===RR_COD_CASCA) vc.casca=true;
+    } }
   // DEFENSAS: agrega por rodovia (D) e código (J), qtde (L)
   const D=wb.Sheets['DEFENSAS'];
   if(D && D['!ref']){ const rng=XLSX.utils.decode_range(D['!ref']); const agg={};
@@ -3738,8 +3781,9 @@ function RRgerar62(dados, resp, periodo){
   const PLACAS_PADRAO='placas de sinalização em alumínio composto, com película retrorrefletiva Tipo III prismática e suportes ecológicos colapsíveis de seção 80 x 80 mm';
   rv.forEach((rod, i)=>{ const r=(resp.vertical&&resp.vertical[rod])||{};
     const sit=r.situacao||'iniciada'; const verbo=RR_SIT_V[sit]||RR_SIT_V.iniciada;
-    const desc = r.placas || PLACAS_PADRAO;                 // #2 preenche r.placas com as variações marcadas
-    const brk = r.placas ? '' : ' [tipos de placas, se aplicável]';
+    const desc0 = r.placas || RRdescVert(rod, dados);       // descrição montada dos códigos W/Q/U da PROD
+    const desc = desc0 || PLACAS_PADRAO;
+    const brk = desc0 ? '' : ' [tipos de placas, se aplicável]';
     const abertura=[
       `No mês em referência, ${verbo} sinalização vertical na rodovia ${rod}, conforme Nota de Serviço emitida para o trecho. Os serviços contemplaram a implantação de ${desc}.${brk}`,
       `Na rodovia ${rod}, ${verbo} sinalização vertical durante o período de referência, em atendimento à Nota de Serviço. Foram implantadas ${desc}.${brk}`,
