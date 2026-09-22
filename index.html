@@ -729,7 +729,7 @@ function viewMapa(){
   setNav("mapa","Mapa");
   setCrumbs([{t:"Dashboard", go:"viewDashboard()"},{t:"Mapa"}]);
   const rods=rodoviasComCoord();
-  const opts=rods.map(r=>`<option value="${esc(r)}">${esc(r)}</option>`).join('');
+  const opts=`<option value="__todas__">Todas as rodovias</option>`+rods.map(r=>`<option value="${esc(r)}">${esc(r)}</option>`).join('');
   document.getElementById("view").innerHTML=`
     <div class="pagehd"><div><h2>Mapa</h2><div class="sb">Placas e defensas georreferenciadas, por situação de medição</div></div></div>
     <div class="toolbar">
@@ -751,14 +751,15 @@ function viewMapa(){
 async function plotMapa(){
   if(!_mapa||!window.L) return;
   const rod=document.getElementById('mapaRod').value;
+  const todas = rod==='__todas__';
   const verV=document.getElementById('mapaVert').checked;
   const verD=document.getElementById('mapaDef').checked;
   const info=document.getElementById('mapaInfo');
-  _mapaLayer.clearLayers(); info.textContent='Carregando…';
+  _mapaLayer.clearLayers(); info.textContent= todas? 'Carregando todas as rodovias… (pode levar alguns segundos)' : 'Carregando…';
   const bounds=[]; let nP=0,nPm=0,nT=0,nTm=0;
   const num=v=>{ const x=parseFloat(String(v==null?'':v).replace(',','.')); return isFinite(x)?x:null; };
   if(verV){
-    for(const m of manifest.filter(m=>m.rodovia===rod)){
+    for(const m of (todas? manifest : manifest.filter(m=>m.rodovia===rod))){
       let ns; try{ ns=await carregarNS(m.id);}catch(e){ continue; }
       const med=medicoes[m.id]||{};
       (ns.placas||[]).forEach(p=>{
@@ -772,7 +773,7 @@ async function plotMapa(){
     }
   }
   if(verD){
-    for(const m of defManifest.filter(m=>m.rodovia===rod)){
+    for(const m of (todas? defManifest : defManifest.filter(m=>m.rodovia===rod))){
       let ns; try{ ns=await carregarDefNS(m.id);}catch(e){ continue; }
       const med=defMedicoes[m.id]||{};
       (ns.itens||[]).forEach((it,i)=>{
@@ -788,10 +789,11 @@ async function plotMapa(){
       });
     }
   }
-  if(bounds.length) _mapa.fitBounds(bounds,{padding:[30,30],maxZoom:16});
+  if(bounds.length) _mapa.fitBounds(bounds,{padding:[30,30],maxZoom: todas?12:16});
+  const rotulo = todas? 'Todas as rodovias' : rod;
   info.innerHTML = bounds.length
-    ? `<b>${esc(rod)}</b> — 🚦 ${nP} placas (${nPm} medidas) · 🛡️ ${nT} tramos de defensa (${nTm} medidos)`
-    : `<b>${esc(rod)}</b> — sem coordenadas para exibir nesta seleção.`;
+    ? `<b>${esc(rotulo)}</b> — 🚦 ${nP} placas (${nPm} medidas) · 🛡️ ${nT} tramos de defensa (${nTm} medidos)`
+    : `<b>${esc(rotulo)}</b> — sem coordenadas para exibir nesta seleção.`;
 }
 
 /* ================= DASHBOARD ================= */
