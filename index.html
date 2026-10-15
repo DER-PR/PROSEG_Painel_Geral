@@ -1157,6 +1157,47 @@ async function gerarTravaVertical(){
     </div>`);
 }
 
+/* ===== LISTA DE RETRO (vertical) =====
+   Gera <rodovia>.retro.json = {medicao:N, indices:[...]} com as placas da medição N,
+   usando o mesmo mapeamento/verificação (sig) da trava. A aba "Retro avulso" do app
+   lê esses arquivos para mostrar só as placas dessa medição (sem depender da trava). */
+async function gerarRetroVertical(){
+  if(typeof JSZip==='undefined'){ toast("Biblioteca indisponível (sem internet?)"); return; }
+  let maxMed=0; Object.values(medicoes).forEach(o=>Object.values(o||{}).forEach(v=>{ const n=Number(v); if(n>maxMed) maxMed=n; }));
+  const ans=prompt("Gerar lista de RETRO de qual medição?\n(só as placas dessa medição vão aparecer na aba de retro avulso do app)", String(maxMed||''));
+  if(ans==null) return;
+  const medAlvo=Number(ans); if(!medAlvo){ toast("Medição inválida"); return; }
+  toast("Gerando lista de retro…");
+  const zip=new JSZip(); const feitos=[], pulados=[];
+  const porId={}; TRAVA_MAP.forEach(t=>porId[t.id]=t);
+  for(const t of TRAVA_MAP){
+    const med=medicoes[t.id]; if(!med || !Object.keys(med).length) continue;
+    const idxs=Object.keys(med).map(Number).filter(k=>k>=0 && Number(med[String(k)])===medAlvo).sort((a,b)=>a-b);
+    if(!idxs.length) continue;
+    let ns; try{ ns=await carregarNS(t.id); }catch(e){ pulados.push(t.arq+" (falha ao carregar)"); continue; }
+    if((ns.placas||[]).length!==t.n || travaSig(ns)!==t.sig){ pulados.push(t.arq+" (conteúdo divergiu — conferir)"); continue; }
+    const validos=idxs.filter(k=>k<t.n);
+    if(!validos.length) continue;
+    zip.file(t.arq+".retro.json", JSON.stringify({medicao:medAlvo, indices:validos}));
+    feitos.push({arq:t.arq, n:validos.length});
+  }
+  manifest.forEach(m=>{ const med=medicoes[m.id];
+    if(med && !porId[m.id] && Object.values(med).some(v=>Number(v)===medAlvo)) pulados.push((m.rodovia+' '+(m.trecho||'')).trim()+" (fora do mapa verificado)"); });
+  if(!feitos.length){ toast("Nenhuma placa na medição "+medAlvo); return; }
+  const blob=await zip.generateAsync({type:"blob",compression:"DEFLATE"});
+  const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download="retro_med"+medAlvo+"_vertical.zip";
+  document.body.appendChild(a); a.click(); setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); },1500);
+  const linhas=feitos.map(f=>`<tr><td><b>${esc(f.arq)}</b></td><td style="text-align:right">${f.n} placas 🔦</td></tr>`).join('');
+  const av=pulados.length? `<div class="hint" style="margin-top:12px">⚠️ Puladas: ${pulados.map(esc).join(' · ')}</div>`:'';
+  document.getElementById("view").insertAdjacentHTML('afterbegin',
+    `<div class="panel" id="retroResumo" style="margin-bottom:14px;border-left:4px solid #7c3aed">
+      <h3>🔦 Lista de retro (medição ${medAlvo}) — ${feitos.length} rodovia(s) <span class="see" onclick="document.getElementById('retroResumo').remove()">fechar</span></h3>
+      <table style="margin-top:4px"><tbody>${linhas}</tbody></table>
+      <p class="muted" style="font-size:13px;margin:10px 2px 0">Baixou <b>retro_med${medAlvo}_vertical.zip</b>. Suba os arquivos <b>.retro.json</b> para a pasta <b>rodovias/</b> do app (repositório PROSEG_NS_Vertical).</p>
+      ${av}
+    </div>`);
+}
+
 /* Lista de NS de sinalização vertical */
 function viewVertical(){
   atualNS=null;
@@ -1176,6 +1217,7 @@ function viewVertical(){
       <input class="busca" id="buscaNS" placeholder="Buscar rodovia (ex.: PR-281)…" oninput="renderListaNS()">
       <button class="btn" onclick="viewPlacasPorMedicao()">🔎 Placas por medição</button>
       <button class="btn" onclick="gerarTravaVertical()">🔒 Gerar trava da medição</button>
+      <button class="btn" onclick="gerarRetroVertical()">🔦 Gerar lista de retro</button>
     </div>
     <table>
       <thead><tr><th>Rodovia</th><th>NS</th><th style="text-align:right">Placas</th><th>Andamento</th></tr></thead>
