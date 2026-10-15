@@ -706,6 +706,7 @@ function renderBuscaRodovia(){
 
 /* ===== #5 MAPA (Leaflet sob demanda) ===== */
 let _leafletP=null, _mapa=null, _mapaLayer=null;
+let _mapaSel=new Set(), _mapaRods=[];   // rodovias selecionadas no mapa (multi-seleção)
 function carregarLeaflet(){
   if(window.L) return Promise.resolve();
   if(_leafletP) return _leafletP;
@@ -729,12 +730,22 @@ function viewMapa(){
   setNav("mapa","Mapa");
   setCrumbs([{t:"Dashboard", go:"viewDashboard()"},{t:"Mapa"}]);
   const rods=rodoviasComCoord();
-  const opts=`<option value="__todas__">Todas as rodovias</option>`+rods.map(r=>`<option value="${esc(r)}">${esc(r)}</option>`).join('');
+  _mapaRods=rods; _mapaSel=new Set(rods);   // começa com todas marcadas
+  const checks=rods.map(r=>`<label style="display:flex;align-items:center;gap:6px;padding:3px 2px;font-size:13px;cursor:pointer"><input type="checkbox" value="${esc(r)}" checked onchange="mapaCheck(this)"> ${esc(r)}</label>`).join('');
   document.getElementById("view").innerHTML=`
     <div class="pagehd"><div><h2>Mapa</h2><div class="sb">Placas e defensas georreferenciadas, por situação de medição</div></div></div>
     <div class="toolbar">
-      <label style="font-weight:600;font-size:13px">Rodovia:</label>
-      <select id="mapaRod" onchange="plotMapa()" style="padding:7px 9px;border:1px solid var(--borda);border-radius:8px;font-size:14px">${opts}</select>
+      <label style="font-weight:600;font-size:13px">Rodovias:</label>
+      <div style="position:relative">
+        <button type="button" id="mapaSelBtn" onclick="mapaDrop()" style="padding:7px 10px;border:1px solid var(--borda);border-radius:8px;font-size:14px;background:#fff;cursor:pointer;display:flex;align-items:center;gap:6px">🛣️ <span id="mapaSelLbl">Todas as rodovias</span> <span style="opacity:.6">▾</span></button>
+        <div id="mapaSelPanel" style="display:none;position:absolute;top:calc(100% + 4px);left:0;z-index:1200;background:#fff;border:1px solid var(--borda);border-radius:10px;box-shadow:0 6px 24px rgba(0,0,0,.15);min-width:240px;padding:8px">
+          <div style="display:flex;gap:6px;margin-bottom:6px">
+            <button type="button" onclick="mapaMarcarTodas(true)" style="flex:1;padding:5px;border:1px solid var(--borda);border-radius:6px;background:#f6f8fa;font-size:12px;cursor:pointer">✔ Marcar todas</button>
+            <button type="button" onclick="mapaMarcarTodas(false)" style="flex:1;padding:5px;border:1px solid var(--borda);border-radius:6px;background:#f6f8fa;font-size:12px;cursor:pointer">✖ Limpar</button>
+          </div>
+          <div style="max-height:260px;overflow:auto">${checks}</div>
+        </div>
+      </div>
       <label style="font-size:13px;display:flex;align-items:center;gap:5px"><input type="checkbox" id="mapaVert" checked onchange="plotMapa()"> 🚦 Vertical</label>
       <label style="font-size:13px;display:flex;align-items:center;gap:5px"><input type="checkbox" id="mapaDef" checked onchange="plotMapa()"> 🛡️ Defensas</label>
       <span style="margin-left:auto;font-size:12px;white-space:nowrap"><b style="color:#16a34a">●</b> medido &nbsp; <b style="color:#f59e0b">●</b> pendente</span>
@@ -748,18 +759,30 @@ function viewMapa(){
     plotMapa();
   }).catch(e=>{ document.getElementById('mapaInfo').textContent='Erro ao carregar o mapa: '+((e&&e.message)||e); });
 }
+/* ---- seletor múltiplo de rodovias do mapa ---- */
+function mapaDrop(){ const p=document.getElementById('mapaSelPanel'); if(p) p.style.display = (p.style.display==='none'||!p.style.display)?'block':'none'; }
+function mapaSelLbl(){ const el=document.getElementById('mapaSelLbl'); if(!el) return;
+  const n=_mapaSel.size, tot=_mapaRods.length;
+  el.textContent = n===0?'Nenhuma rodovia' : (n===tot?'Todas as rodovias' : (n===1?[..._mapaSel][0] : n+' rodovias')); }
+function mapaCheck(cb){ if(cb.checked) _mapaSel.add(cb.value); else _mapaSel.delete(cb.value); mapaSelLbl(); plotMapa(); }
+function mapaMarcarTodas(b){ _mapaSel = b? new Set(_mapaRods) : new Set();
+  document.querySelectorAll('#mapaSelPanel input[type=checkbox]').forEach(cb=>{ cb.checked=b; });
+  mapaSelLbl(); plotMapa(); }
+
 async function plotMapa(){
   if(!_mapa||!window.L) return;
-  const rod=document.getElementById('mapaRod').value;
-  const todas = rod==='__todas__';
+  const sel=_mapaSel, tot=_mapaRods.length;
+  const todas = tot>0 && sel.size>=tot;
   const verV=document.getElementById('mapaVert').checked;
   const verD=document.getElementById('mapaDef').checked;
   const info=document.getElementById('mapaInfo');
-  _mapaLayer.clearLayers(); info.textContent= todas? 'Carregando todas as rodovias… (pode levar alguns segundos)' : 'Carregando…';
+  _mapaLayer.clearLayers();
+  if(sel.size===0){ info.textContent='Marque ao menos uma rodovia acima.'; return; }
+  info.textContent= (todas||sel.size>6)? 'Carregando as rodovias selecionadas… (pode levar alguns segundos)' : 'Carregando…';
   const bounds=[]; let nP=0,nPm=0,nT=0,nTm=0;
   const num=v=>{ const x=parseFloat(String(v==null?'':v).replace(',','.')); return isFinite(x)?x:null; };
   if(verV){
-    for(const m of (todas? manifest : manifest.filter(m=>m.rodovia===rod))){
+    for(const m of manifest.filter(m=>sel.has(m.rodovia))){
       let ns; try{ ns=await carregarNS(m.id);}catch(e){ continue; }
       const med=medicoes[m.id]||{};
       (ns.placas||[]).forEach(p=>{
@@ -773,7 +796,7 @@ async function plotMapa(){
     }
   }
   if(verD){
-    for(const m of (todas? defManifest : defManifest.filter(m=>m.rodovia===rod))){
+    for(const m of defManifest.filter(m=>sel.has(m.rodovia))){
       let ns; try{ ns=await carregarDefNS(m.id);}catch(e){ continue; }
       const med=defMedicoes[m.id]||{};
       (ns.itens||[]).forEach((it,i)=>{
@@ -789,8 +812,8 @@ async function plotMapa(){
       });
     }
   }
-  if(bounds.length) _mapa.fitBounds(bounds,{padding:[30,30],maxZoom: todas?12:16});
-  const rotulo = todas? 'Todas as rodovias' : rod;
+  if(bounds.length) _mapa.fitBounds(bounds,{padding:[30,30],maxZoom: sel.size>1?12:16});
+  const rotulo = todas? 'Todas as rodovias' : (sel.size===1?[...sel][0] : sel.size+' rodovias selecionadas');
   info.innerHTML = bounds.length
     ? `<b>${esc(rotulo)}</b> — 🚦 ${nP} placas (${nPm} medidas) · 🛡️ ${nT} tramos de defensa (${nTm} medidos)`
     : `<b>${esc(rotulo)}</b> — sem coordenadas para exibir nesta seleção.`;
