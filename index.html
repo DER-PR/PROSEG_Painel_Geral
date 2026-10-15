@@ -1108,6 +1108,7 @@ const TRAVA_MAP = [
   {id:"prc_476_novo", arq:"PRC-476-Nova", n:230, sig:3133992715},
   {id:"prc_476_antigo", arq:"PRC-476-Antiga", n:56, sig:559012421},
   {id:"pr_506_novo", arq:"PR-506", n:387, sig:3965049197},
+  {id:"pr_835_unico", arq:"PR-835", n:16, sig:1533342104, appN:14},
 ];
 /* mesma função da geração do mapa (Python): hash da sequência código|km */
 function travaSig(ns){
@@ -1128,7 +1129,7 @@ async function gerarTravaVertical(){
       pulados.push(t.arq+" (conteúdo divergiu do app — conferir)"); continue;
     }
     // {índice: medição}, só índices válidos, ordenados
-    const obj={}; Object.keys(med).map(Number).filter(k=>k>=0&&k<t.n).sort((a,b)=>a-b)
+    const obj={}; Object.keys(med).map(Number).filter(k=>k>=0&&k<(t.appN||t.n)).sort((a,b)=>a-b)
       .forEach(k=>{ obj[k]=med[String(k)]; });
     if(!Object.keys(obj).length) continue;
     zip.file(t.arq+".fechadas.json", JSON.stringify(obj));
@@ -1161,41 +1162,53 @@ async function gerarTravaVertical(){
    Gera <rodovia>.retro.json = {medicao:N, indices:[...]} com as placas da medição N,
    usando o mesmo mapeamento/verificação (sig) da trava. A aba "Retro avulso" do app
    lê esses arquivos para mostrar só as placas dessa medição (sem depender da trava). */
+let _retroCand=[];
 async function gerarRetroVertical(){
   if(typeof JSZip==='undefined'){ toast("Biblioteca indisponível (sem internet?)"); return; }
   let maxMed=0; Object.values(medicoes).forEach(o=>Object.values(o||{}).forEach(v=>{ const n=Number(v); if(n>maxMed) maxMed=n; }));
-  const ans=prompt("Gerar lista de RETRO de qual medição?\n(só as placas dessa medição vão aparecer na aba de retro avulso do app)", String(maxMed||''));
+  const ans=prompt("Gerar lista de RETRO de qual medição?\n(depois você escolhe quais rodovias incluir)", String(maxMed||''));
   if(ans==null) return;
   const medAlvo=Number(ans); if(!medAlvo){ toast("Medição inválida"); return; }
-  toast("Gerando lista de retro…");
-  const zip=new JSZip(); const feitos=[], pulados=[];
-  const porId={}; TRAVA_MAP.forEach(t=>porId[t.id]=t);
+  toast("Verificando rodovias…");
+  _retroCand=[]; const pulados=[]; const porId={}; TRAVA_MAP.forEach(t=>porId[t.id]=t);
   for(const t of TRAVA_MAP){
     const med=medicoes[t.id]; if(!med || !Object.keys(med).length) continue;
-    const idxs=Object.keys(med).map(Number).filter(k=>k>=0 && Number(med[String(k)])===medAlvo).sort((a,b)=>a-b);
+    const lim=t.appN||t.n;   // ignora índices do painel que não existem no app (ex.: PR-835 tem 16 no painel / 14 no app)
+    const idxs=Object.keys(med).map(Number).filter(k=>k>=0 && k<lim && Number(med[String(k)])===medAlvo).sort((a,b)=>a-b);
     if(!idxs.length) continue;
     let ns; try{ ns=await carregarNS(t.id); }catch(e){ pulados.push(t.arq+" (falha ao carregar)"); continue; }
     if((ns.placas||[]).length!==t.n || travaSig(ns)!==t.sig){ pulados.push(t.arq+" (conteúdo divergiu — conferir)"); continue; }
-    const validos=idxs.filter(k=>k<t.n);
-    if(!validos.length) continue;
-    zip.file(t.arq+".retro.json", JSON.stringify({medicao:medAlvo, indices:validos}));
-    feitos.push({arq:t.arq, n:validos.length});
+    _retroCand.push({arq:t.arq, medicao:medAlvo, idxs:idxs});
   }
   manifest.forEach(m=>{ const med=medicoes[m.id];
     if(med && !porId[m.id] && Object.values(med).some(v=>Number(v)===medAlvo)) pulados.push((m.rodovia+' '+(m.trecho||'')).trim()+" (fora do mapa verificado)"); });
-  if(!feitos.length){ toast("Nenhuma placa na medição "+medAlvo); return; }
+  if(!_retroCand.length){ toast("Nenhuma placa na medição "+medAlvo); return; }
+  _retroCand.sort((a,b)=>a.arq.localeCompare(b.arq,undefined,{numeric:true}));
+  const linhas=_retroCand.map((c,i)=>`<label style="display:flex;align-items:center;gap:8px;padding:5px 2px;border-bottom:1px solid var(--borda)"><input type="checkbox" class="retroChk" data-i="${i}" checked> <b>${esc(c.arq)}</b><span class="muted" style="margin-left:auto">${c.idxs.length} placas</span></label>`).join('');
+  const av=pulados.length? `<div class="hint" style="margin-top:10px">⚠️ Fora do mapa/divergentes: ${pulados.map(esc).join(' · ')}</div>`:'';
+  const old=document.getElementById('retroSel'); if(old) old.remove();
+  document.getElementById("view").insertAdjacentHTML('afterbegin',
+    `<div class="panel" id="retroSel" style="margin-bottom:14px;border-left:4px solid #7c3aed">
+      <h3>🔦 Retro medição ${medAlvo} — escolha as rodovias <span class="see" onclick="document.getElementById('retroSel').remove()">fechar</span></h3>
+      <div style="display:flex;gap:6px;margin:6px 0 4px"><button class="btn" onclick="retroMarcar(true)">✔ Marcar todas</button><button class="btn" onclick="retroMarcar(false)">✖ Limpar</button></div>
+      <div style="max-height:340px;overflow:auto">${linhas}</div>
+      ${av}
+      <button class="btn pri" style="margin-top:12px" onclick="gerarRetroZip(${medAlvo})">📦 Gerar lista das rodovias marcadas</button>
+    </div>`);
+}
+function retroMarcar(b){ document.querySelectorAll('#retroSel .retroChk').forEach(c=>c.checked=b); }
+async function gerarRetroZip(medAlvo){
+  const sel=[...document.querySelectorAll('#retroSel .retroChk')].filter(c=>c.checked).map(c=>_retroCand[Number(c.dataset.i)]);
+  if(!sel.length){ toast("Marque ao menos uma rodovia"); return; }
+  const zip=new JSZip();
+  sel.forEach(c=>{ zip.file(c.arq+".retro.json", JSON.stringify({medicao:c.medicao, indices:c.idxs})); });
   const blob=await zip.generateAsync({type:"blob",compression:"DEFLATE"});
   const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download="retro_med"+medAlvo+"_vertical.zip";
   document.body.appendChild(a); a.click(); setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); },1500);
-  const linhas=feitos.map(f=>`<tr><td><b>${esc(f.arq)}</b></td><td style="text-align:right">${f.n} placas 🔦</td></tr>`).join('');
-  const av=pulados.length? `<div class="hint" style="margin-top:12px">⚠️ Puladas: ${pulados.map(esc).join(' · ')}</div>`:'';
-  document.getElementById("view").insertAdjacentHTML('afterbegin',
-    `<div class="panel" id="retroResumo" style="margin-bottom:14px;border-left:4px solid #7c3aed">
-      <h3>🔦 Lista de retro (medição ${medAlvo}) — ${feitos.length} rodovia(s) <span class="see" onclick="document.getElementById('retroResumo').remove()">fechar</span></h3>
-      <table style="margin-top:4px"><tbody>${linhas}</tbody></table>
-      <p class="muted" style="font-size:13px;margin:10px 2px 0">Baixou <b>retro_med${medAlvo}_vertical.zip</b>. Suba os arquivos <b>.retro.json</b> para a pasta <b>rodovias/</b> do app (repositório PROSEG_NS_Vertical).</p>
-      ${av}
-    </div>`);
+  const el=document.getElementById('retroSel');
+  if(el) el.innerHTML=`<h3>✓ Lista gerada — ${sel.length} rodovia(s) <span class="see" onclick="document.getElementById('retroSel').remove()">fechar</span></h3>
+    <p class="muted" style="font-size:13px;margin:8px 2px 0">Baixou <b>retro_med${medAlvo}_vertical.zip</b>. Suba os <b>.retro.json</b> na pasta <b>rodovias/</b> do repo PROSEG_NS_Vertical. <b>Dica:</b> se quiser trocar as rodovias depois, apague os .retro.json antigos que não forem mais usados.</p>`;
+  toast("Lista de retro gerada ✓");
 }
 
 /* Lista de NS de sinalização vertical */
